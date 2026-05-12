@@ -1,4 +1,5 @@
 const express = require('express')
+const midtransClient = require('midtrans-client')
 const cors = require('cors')
 const multer = require('multer')
 const { exec } = require('child_process')
@@ -7,16 +8,6 @@ const fs = require('fs')
 const os = require('os')
 require('dotenv').config()
 
-// ─── MIDTRANS (dinonaktifkan sementara) ───────────────────────────────────────
-// const midtransClient = require('midtrans-client')
-// const isProduction = process.env.MIDTRANS_IS_PRODUCTION === 'true'
-// const serverKey = process.env.MIDTRANS_SERVER_KEY
-// const clientKey = process.env.MIDTRANS_CLIENT_KEY
-// const qrisAcquirer = process.env.MIDTRANS_QRIS_ACQUIRER || 'gopay'
-// const midtransFinishPath = process.env.MIDTRANS_FINISH_PATH || '/'
-// const snap = new midtransClient.Snap({ isProduction, serverKey, clientKey })
-// ──────────────────────────────────────────────────────────────────────────────
-
 const app = express()
 const api = express.Router()
 
@@ -24,104 +15,77 @@ app.use(cors())
 app.use(express.json())
 
 const PORT = process.env.PORT || 5001
+const isProduction = process.env.MIDTRANS_IS_PRODUCTION === 'true'
+const serverKey = process.env.MIDTRANS_SERVER_KEY
+const clientKey = process.env.MIDTRANS_CLIENT_KEY
+const qrisAcquirer = process.env.MIDTRANS_QRIS_ACQUIRER || 'gopay'
+const midtransFinishPath = process.env.MIDTRANS_FINISH_PATH || '/'
 const PRINTER_NAME = process.env.PRINTER_NAME || 'Brother_T720DW'
 
-// Multer: simpan file sementara di folder temp OS
+const snap = new midtransClient.Snap({ isProduction, serverKey, clientKey })
 const upload = multer({ dest: os.tmpdir() })
 
-// ─── HEALTH CHECK ─────────────────────────────────────────────────────────────
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+function truncateItemName(name = '', maxLength = 50) {
+  return name.length <= maxLength ? name : `${name.slice(0, maxLength - 3)}...`
+}
+
+function normalizeItemDetails(items = [], grossAmount = 0) {
+  const normalized = items
+    .map((item, i) => ({
+      id: String(item?.id || `ITEM-${i + 1}`),
+      price: Number(item?.price) || 0,
+      quantity: Number(item?.quantity) || 1,
+      name: truncateItemName(String(item?.name || `Item ${i + 1}`)),
+    }))
+    .filter((item) => item.price > 0 && item.quantity > 0)
+
+  if (normalized.length === 0 || normalized.reduce((s, i) => s + i.price * i.quantity, 0) !== grossAmount) {
+    return [{ id: 'PRINT-JOB', price: grossAmount, quantity: 1, name: 'Print Job' }]
+  }
+  return normalized
+}
+
+function getRequestBaseUrl(req) {
+  if (req.headers.origin) return req.headers.origin
+  const host = req.headers['x-forwarded-host'] || req.headers.host
+  const proto = req.headers['x-forwarded-proto'] || req.protocol || 'http'
+  return host ? `${proto}://${host}` : 'http://localhost:5173'
+}
+
+function getFinishUrl(req) {
+  const base = process.env.MIDTRANS_FINISH_URL || getRequestBaseUrl(req)
+  return new URL(midtransFinishPath, base).toString()
+}
+
+// ─── Routes ───────────────────────────────────────────────────────────────────
 api.get('/health', (_req, res) => {
-  res.json({
-    ok: true,
-    service: 'rukkamu-print-api',
-    printer: PRINTER_NAME,
-  })
+  res.json({ ok: true, service: 'rukkamu-print-api', mode: isProduction ? 'production' : 'sandbox', printer: PRINTER_NAME })
 })
 
-// ─── PRINT ENDPOINT ───────────────────────────────────────────────────────────
-api.post('/print', upload.single('file'), (req, res) => {
-  if (!req.file) {
-    return res.status(400).json({ error: 'Tidak ada file yang dikirim.' })
-  }
-
-  const { copies = '1', duplex = 'true', paperSize = 'A4' } = req.body || {}
-
-  // Rename temp file agar punya ekstensi yang benar (penting untuk lp)
-  const originalName = req.file.originalname || 'document.pdf'
-  const ext = path.extname(originalName).toLowerCase() || '.pdf'
-  const renamedPath = `${req.file.path}${ext}`
-
-  try {
-    fs.renameSync(req.file.path, renamedPath)
-  } catch (renameErr) {
-    return res.status(500).json({ error: `Gagal rename file sementara: ${renameErr.message}` })
-  }
-
-  // Terjemahkan config ke opsi lp
-  const numCopies = Math.max(1, parseInt(copies, 10) || 1)
-  const isDuplex = duplex === 'true'
-  const mediaMap = { A4: 'A4', Letter: 'Letter', Legal: 'Legal' }
-  const media = mediaMap[paperSize] || 'A4'
-
-  const lpOptions = [
-    `-d "${PRINTER_NAME}"`,
-    `-n ${numCopies}`,
-    `-o media=${media}`,
-    isDuplex ? '-o sides=two-sided-long-edge' : '-o sides=one-sided',
-  ].join(' ')
-
-  const command = `lp ${lpOptions} "${renamedPath}"`
-  console.log('[PRINT] Menjalankan:', command)
-
-  exec(command, (error, stdout, stderr) => {
-    // Hapus file sementara setelah print job dikirim
-    try { fs.unlinkSync(renamedPath) } catch {}
-
-    if (error) {
-      console.error('[PRINT] Error:', stderr || error.message)
-      return res.status(500).json({
-        error: `Gagal mengirim ke printer: ${stderr?.trim() || error.message}`,
-      })
-    }
-
-    // lp stdout contoh: "request id is Brother_T720DW-9 (1 file(s))"
-    const jobMatch = stdout.match(/request id is (\S+)/)
-    const jobId = jobMatch ? jobMatch[1] : 'unknown'
-
-    console.log('[PRINT] Job diterima:', stdout.trim())
-    return res.json({
-      ok: true,
-      jobId,
-      message: stdout.trim() || 'Print job dikirim ke printer.',
-    })
-  })
+// Expose client key ke frontend untuk Snap.js
+api.get('/config', (_req, res) => {
+  res.json({ clientKey, isProduction, printer: PRINTER_NAME })
 })
 
-// ─── MIDTRANS ENDPOINTS (dinonaktifkan sementara) ─────────────────────────────
-/*
 api.post('/create-checkout-transaction', async (req, res) => {
   const { amount, order_id, items, customer_details } = req.body || {}
   const grossAmount = Number(amount) || 0
-
-  if (!grossAmount || !order_id) {
-    return res.status(400).json({ error: 'amount dan order_id wajib diisi.' })
-  }
-
-  const parameter = {
-    transaction_details: { order_id, gross_amount: grossAmount },
-    item_details: items || [],
-    customer_details: customer_details || undefined,
-    credit_card: { secure: true },
-  }
+  if (!grossAmount || !order_id) return res.status(400).json({ error: 'amount dan order_id wajib diisi.' })
 
   try {
-    const transaction = await snap.createTransaction(parameter)
+    const transaction = await snap.createTransaction({
+      transaction_details: { order_id, gross_amount: grossAmount },
+      item_details: normalizeItemDetails(items, grossAmount),
+      customer_details: customer_details || undefined,
+      credit_card: { secure: true },
+      callbacks: { finish: getFinishUrl(req) },
+      custom_field1: qrisAcquirer,
+    })
     return res.json({ token: transaction.token, redirect_url: transaction.redirect_url })
   } catch (error) {
-    console.error('Midtrans checkout error:', error?.ApiResponse || error)
-    return res.status(500).json({
-      error: error?.ApiResponse?.status_message || error.message || 'Gagal membuat checkout Midtrans.',
-    })
+    console.error('Midtrans error:', error?.ApiResponse || error)
+    return res.status(500).json({ error: error?.ApiResponse?.status_message || error.message || 'Gagal membuat transaksi.' })
   }
 })
 
@@ -130,27 +94,49 @@ api.get('/transaction-status/:orderId', async (req, res) => {
     const status = await snap.transaction.status(req.params.orderId)
     return res.json(status)
   } catch (error) {
-    console.error('Midtrans status error:', error?.ApiResponse || error)
-    return res.status(500).json({
-      error: error?.ApiResponse?.status_message || error.message || 'Gagal memeriksa status pembayaran.',
-    })
+    console.error('Status error:', error?.ApiResponse || error)
+    return res.status(500).json({ error: error?.ApiResponse?.status_message || error.message })
   }
 })
-*/
-// ──────────────────────────────────────────────────────────────────────────────
 
-app.use('/api', api)
+// Print endpoint — dipanggil SETELAH pembayaran berhasil
+api.post('/print', upload.single('file'), (req, res) => {
+  if (!req.file) return res.status(400).json({ error: 'Tidak ada file yang dikirim.' })
 
-app.use((req, res) => {
-  res.status(404).json({
-    error: `Route tidak ditemukan: ${req.method} ${req.originalUrl}`,
+  const { copies = '1', duplex = 'true', paperSize = 'A4' } = req.body || {}
+  const ext = path.extname(req.file.originalname || 'document.pdf').toLowerCase() || '.pdf'
+  const renamedPath = `${req.file.path}${ext}`
+
+  try { fs.renameSync(req.file.path, renamedPath) } catch (e) {
+    return res.status(500).json({ error: `Gagal menyimpan file: ${e.message}` })
+  }
+
+  const numCopies = Math.max(1, parseInt(copies, 10) || 1)
+  const media = { A4: 'A4', Letter: 'Letter', Legal: 'Legal' }[paperSize] || 'A4'
+  const sides = duplex === 'true' ? 'two-sided-long-edge' : 'one-sided'
+
+  const command = `lp -d "${PRINTER_NAME}" -n ${numCopies} -o media=${media} -o sides=${sides} "${renamedPath}"`
+  console.log('[PRINT]', command)
+
+  exec(command, (error, stdout, stderr) => {
+    try { fs.unlinkSync(renamedPath) } catch {}
+    if (error) {
+      console.error('[PRINT] Error:', stderr || error.message)
+      return res.status(500).json({ error: `Gagal mencetak: ${stderr?.trim() || error.message}` })
+    }
+    const jobId = (stdout.match(/request id is (\S+)/) || [])[1] || 'unknown'
+    console.log('[PRINT] Job:', stdout.trim())
+    return res.json({ ok: true, jobId, message: stdout.trim() })
   })
 })
 
+app.use('/api', api)
+app.use((req, res) => res.status(404).json({ error: `Route tidak ditemukan: ${req.method} ${req.originalUrl}` }))
+
 app.listen(PORT, () => {
   console.log('========================================')
-  console.log(' Rukkamu Print Server Running          ')
-  console.log(` Port    : ${PORT}                     `)
+  console.log(` Rukkamu Print Server — Port ${PORT}   `)
   console.log(` Printer : ${PRINTER_NAME}             `)
+  console.log(` Mode    : ${isProduction ? 'PRODUCTION' : 'SANDBOX'}`)
   console.log('========================================')
 })
