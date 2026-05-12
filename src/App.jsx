@@ -73,6 +73,7 @@ function App() {
   const [file, setFile] = useState(null)
   const [rawFile, setRawFile] = useState(null)
   const [printJobId, setPrintJobId] = useState(null)
+  const [currentOrderId, setCurrentOrderId] = useState(null)
   const [config, setConfig] = useState(defaultConfig)
   const [isAnalyzing, setIsAnalyzing] = useState(false)
   const [isProcessing, setIsProcessing] = useState(false)
@@ -126,7 +127,7 @@ function App() {
   }
 
   const resetAll = () => {
-    setStep(0); setFile(null); setRawFile(null); setPrintJobId(null)
+    setStep(0); setFile(null); setRawFile(null); setPrintJobId(null); setCurrentOrderId(null)
     setConfig(defaultConfig); setIsAnalyzing(false); setIsProcessing(false); setError(null)
     if (fileInputRef.current) fileInputRef.current.value = ''
   }
@@ -158,6 +159,33 @@ function App() {
     setStep(3)
   }
 
+  // Cek status transaksi ke Midtrans — jika sudah lunas, langsung print
+  const checkAndPrint = async (orderId) => {
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/transaction-status/${orderId}`)
+      const data = await res.json()
+      if (['settlement', 'capture'].includes(data.transaction_status)) {
+        await sendPrintJob()
+        return true
+      }
+      return false
+    } catch {
+      return false
+    }
+  }
+
+  // Tombol manual "Saya Sudah Bayar" — polling status lalu print jika lunas
+  const manualCheckAndPrint = async () => {
+    if (!currentOrderId) return
+    setIsProcessing(true)
+    setError(null)
+    const paid = await checkAndPrint(currentOrderId)
+    if (!paid) {
+      setError('Pembayaran belum terdeteksi. Pastikan simulasi berhasil (status PAID), lalu coba lagi.')
+      setIsProcessing(false)
+    }
+  }
+
   // ─── Buka Snap popup → setelah bayar → cetak ────────────────────────────────
   const openSnapPayment = async () => {
     if (!file) return
@@ -170,12 +198,15 @@ function App() {
       const { clientKey, isProduction } = await configRes.json()
 
       // 2. Buat transaksi → dapat snap token
+      const orderId = createOrderId()
+      setCurrentOrderId(orderId)
+
       const txRes = await fetch(`${API_BASE_URL}/api/create-checkout-transaction`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           amount: totalPrice,
-          order_id: createOrderId(),
+          order_id: orderId,
           items: [{ id: 'PRINT-JOB', price: totalPrice, quantity: 1, name: `Print: ${file.name}` }],
         }),
       })
@@ -187,22 +218,27 @@ function App() {
 
       window.snap.pay(txData.token, {
         onSuccess: async () => {
-          try {
-            await sendPrintJob()
-          } catch (printErr) {
-            setError(`Pembayaran berhasil tapi print gagal: ${printErr.message}`)
+          // Pembayaran selesai di dalam popup
+          try { await sendPrintJob() } catch (e) {
+            setError(`Pembayaran berhasil tapi print gagal: ${e.message}`)
           }
         },
-        onPending: () => {
-          setError('Pembayaran pending. Silakan selesaikan pembayaran lalu hubungi petugas.')
-          setIsProcessing(false)
+        onPending: async () => {
+          // Mungkin sudah dibayar via simulator eksternal
+          const paid = await checkAndPrint(orderId)
+          if (!paid) {
+            setError('Pembayaran pending. Klik "Saya Sudah Bayar" jika sudah menyelesaikan pembayaran.')
+            setIsProcessing(false)
+          }
         },
         onError: () => {
           setError('Pembayaran gagal. Silakan coba lagi.')
           setIsProcessing(false)
         },
-        onClose: () => {
-          setIsProcessing(false)
+        onClose: async () => {
+          // User tutup popup — cek dulu ke Midtrans, mungkin sudah bayar via tab lain
+          const paid = await checkAndPrint(orderId)
+          if (!paid) setIsProcessing(false)
         },
       })
     } catch (err) {
@@ -444,9 +480,14 @@ function App() {
                       <button type="button" className="secondary-button" onClick={() => setStep(1)} disabled={isProcessing}>
                         <ArrowLeft size={16} />Kembali
                       </button>
+                      {currentOrderId && !isProcessing && (
+                        <button type="button" className="secondary-button" onClick={manualCheckAndPrint}>
+                          <CheckCircle2 size={16} /> Saya Sudah Bayar
+                        </button>
+                      )}
                       <button type="button" className="primary-button" onClick={openSnapPayment} disabled={isProcessing}>
                         {isProcessing
-                          ? <><Loader2 size={16} className="spin-icon" /> Memuat...</>
+                          ? <><Loader2 size={16} className="spin-icon" /> Memproses...</>
                           : <><QrCode size={16} /> Bayar Sekarang</>}
                       </button>
                     </div>
