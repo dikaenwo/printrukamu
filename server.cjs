@@ -1,7 +1,6 @@
 const express = require('express')
 const midtransClient = require('midtrans-client')
 const cors = require('cors')
-const multer = require('multer')
 const { exec } = require('child_process')
 const path = require('path')
 const fs = require('fs')
@@ -12,7 +11,7 @@ const app = express()
 const api = express.Router()
 
 app.use(cors())
-app.use(express.json())
+app.use(express.json({ limit: '50mb' }))  // limit besar untuk file base64
 
 const PORT = process.env.PORT || 5001
 const isProduction = process.env.MIDTRANS_IS_PRODUCTION === 'true'
@@ -23,7 +22,6 @@ const midtransFinishPath = process.env.MIDTRANS_FINISH_PATH || '/'
 const PRINTER_NAME = process.env.PRINTER_NAME || 'Brother_T720DW'
 
 const snap = new midtransClient.Snap({ isProduction, serverKey, clientKey })
-const upload = multer({ dest: os.tmpdir() })
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 function truncateItemName(name = '', maxLength = 50) {
@@ -99,27 +97,29 @@ api.get('/transaction-status/:orderId', async (req, res) => {
   }
 })
 
-// Print endpoint — dipanggil SETELAH pembayaran berhasil
-api.post('/print', upload.single('file'), (req, res) => {
-  if (!req.file) return res.status(400).json({ error: 'Tidak ada file yang dikirim.' })
+// Print endpoint — menerima file sebagai base64 JSON (lebih reliable dari multipart)
+api.post('/print', (req, res) => {
+  const { filename, data, copies = 1, duplex = true, paperSize = 'A4' } = req.body || {}
 
-  const { copies = '1', duplex = 'true', paperSize = 'A4' } = req.body || {}
-  const ext = path.extname(req.file.originalname || 'document.pdf').toLowerCase() || '.pdf'
-  const renamedPath = `${req.file.path}${ext}`
+  if (!data) return res.status(400).json({ error: 'Tidak ada data file yang dikirim.' })
 
-  try { fs.renameSync(req.file.path, renamedPath) } catch (e) {
+  const ext = path.extname(filename || 'document.pdf').toLowerCase() || '.pdf'
+  const tempPath = path.join(os.tmpdir(), `print-${Date.now()}${ext}`)
+
+  try {
+    fs.writeFileSync(tempPath, Buffer.from(data, 'base64'))
+  } catch (e) {
     return res.status(500).json({ error: `Gagal menyimpan file: ${e.message}` })
   }
 
   const numCopies = Math.max(1, parseInt(copies, 10) || 1)
   const media = { A4: 'A4', Letter: 'Letter', Legal: 'Legal' }[paperSize] || 'A4'
-  const sides = duplex === 'true' ? 'two-sided-long-edge' : 'one-sided'
-
-  const command = `lp -d "${PRINTER_NAME}" -n ${numCopies} -o media=${media} -o sides=${sides} "${renamedPath}"`
+  const sides = duplex === true || duplex === 'true' ? 'two-sided-long-edge' : 'one-sided'
+  const command = `lp -d "${PRINTER_NAME}" -n ${numCopies} -o media=${media} -o sides=${sides} "${tempPath}"`
   console.log('[PRINT]', command)
 
   exec(command, (error, stdout, stderr) => {
-    try { fs.unlinkSync(renamedPath) } catch {}
+    try { fs.unlinkSync(tempPath) } catch {}
     if (error) {
       console.error('[PRINT] Error:', stderr || error.message)
       return res.status(500).json({ error: `Gagal mencetak: ${stderr?.trim() || error.message}` })

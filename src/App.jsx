@@ -146,13 +146,22 @@ function App() {
   // ─── Upload file & cetak (dipanggil setelah bayar) ──────────────────────────
   const sendPrintJob = async () => {
     if (!rawFile || !file) return
-    const formData = new FormData()
-    formData.append('file', rawFile, file.name)
-    formData.append('copies', String(config.copies))
-    formData.append('duplex', String(config.duplex))
-    formData.append('paperSize', config.paperSize)
 
-    const response = await fetch(`${API_BASE_URL}/api/print`, { method: 'POST', body: formData })
+    // Baca file sebagai base64 — lebih reliable dari FormData lewat proxy
+    const arrayBuffer = await rawFile.arrayBuffer()
+    const base64 = btoa(String.fromCharCode(...new Uint8Array(arrayBuffer)))
+
+    const response = await fetch(`${API_BASE_URL}/api/print`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        filename: file.name,
+        data: base64,
+        copies: config.copies,
+        duplex: config.duplex,
+        paperSize: config.paperSize,
+      }),
+    })
     const data = await response.json()
     if (!response.ok) throw new Error(data.error || 'Gagal mengirim ke printer.')
     setPrintJobId(data.jobId || 'unknown')
