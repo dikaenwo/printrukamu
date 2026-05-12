@@ -149,7 +149,14 @@ function App() {
 
     // Baca file sebagai base64 — lebih reliable dari FormData lewat proxy
     const arrayBuffer = await rawFile.arrayBuffer()
-    const base64 = btoa(String.fromCharCode(...new Uint8Array(arrayBuffer)))
+    // Gunakan chunk agar tidak overflow call stack untuk file besar (gambar, dll)
+    const uint8 = new Uint8Array(arrayBuffer)
+    let binary = ''
+    const CHUNK = 8192
+    for (let i = 0; i < uint8.length; i += CHUNK) {
+      binary += String.fromCharCode(...uint8.subarray(i, i + CHUNK))
+    }
+    const base64 = btoa(binary)
 
     const response = await fetch(`${API_BASE_URL}/api/print`, {
       method: 'POST',
