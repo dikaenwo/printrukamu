@@ -55,6 +55,15 @@ function getFinishUrl(req) {
   return new URL(midtransFinishPath, base).toString()
 }
 
+// ─── Debug: log semua request masuk ─────────────────────────────────────────
+app.use((req, _res, next) => {
+  console.log(`[REQ] ${req.method} ${req.url} | Content-Type: ${req.headers['content-type'] || '-'}`)
+  next()
+})
+
+// Ping sederhana untuk test konektivitas
+app.get('/ping', (_req, res) => res.json({ pong: true, time: new Date().toISOString() }))
+
 // ─── Routes ───────────────────────────────────────────────────────────────────
 app.get('/api/health', (_req, res) => {
   res.json({ ok: true, service: 'rukkamu-print-api', mode: isProduction ? 'production' : 'sandbox', printer: PRINTER_NAME })
@@ -129,7 +138,10 @@ app.post('/api/print', (req, res) => {
   })
 })
 
-app.use((req, res) => res.status(404).json({ error: `Route tidak ditemukan: ${req.method} ${req.originalUrl}` }))
+app.use((req, res) => {
+  console.log(`[404] Route tidak ditemukan: ${req.method} ${req.originalUrl}`)
+  res.status(404).json({ error: `Route tidak ditemukan: ${req.method} ${req.originalUrl}` })
+})
 
 app.listen(PORT, '0.0.0.0', () => {
   console.log('========================================')
