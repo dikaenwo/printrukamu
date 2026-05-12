@@ -8,7 +8,6 @@ const os = require('os')
 require('dotenv').config()
 
 const app = express()
-const api = express.Router()
 
 app.use(cors())
 app.use(express.json({ limit: '50mb' }))  // limit besar untuk file base64
@@ -57,16 +56,16 @@ function getFinishUrl(req) {
 }
 
 // ─── Routes ───────────────────────────────────────────────────────────────────
-api.get('/health', (_req, res) => {
+app.get('/api/health', (_req, res) => {
   res.json({ ok: true, service: 'rukkamu-print-api', mode: isProduction ? 'production' : 'sandbox', printer: PRINTER_NAME })
 })
 
 // Expose client key ke frontend untuk Snap.js
-api.get('/config', (_req, res) => {
+app.get('/api/config', (_req, res) => {
   res.json({ clientKey, isProduction, printer: PRINTER_NAME })
 })
 
-api.post('/create-checkout-transaction', async (req, res) => {
+app.post('/api/create-checkout-transaction', async (req, res) => {
   const { amount, order_id, items, customer_details } = req.body || {}
   const grossAmount = Number(amount) || 0
   if (!grossAmount || !order_id) return res.status(400).json({ error: 'amount dan order_id wajib diisi.' })
@@ -87,7 +86,7 @@ api.post('/create-checkout-transaction', async (req, res) => {
   }
 })
 
-api.get('/transaction-status/:orderId', async (req, res) => {
+app.get('/api/transaction-status/:orderId', async (req, res) => {
   try {
     const status = await snap.transaction.status(req.params.orderId)
     return res.json(status)
@@ -98,7 +97,7 @@ api.get('/transaction-status/:orderId', async (req, res) => {
 })
 
 // Print endpoint — menerima file sebagai base64 JSON (lebih reliable dari multipart)
-api.post('/print', (req, res) => {
+app.post('/api/print', (req, res) => {
   const { filename, data, copies = 1, duplex = true, paperSize = 'A4' } = req.body || {}
 
   if (!data) return res.status(400).json({ error: 'Tidak ada data file yang dikirim.' })
@@ -130,10 +129,9 @@ api.post('/print', (req, res) => {
   })
 })
 
-app.use('/api', api)
 app.use((req, res) => res.status(404).json({ error: `Route tidak ditemukan: ${req.method} ${req.originalUrl}` }))
 
-app.listen(PORT, () => {
+app.listen(PORT, '0.0.0.0', () => {
   console.log('========================================')
   console.log(` Rukkamu Print Server — Port ${PORT}   `)
   console.log(` Printer : ${PRINTER_NAME}             `)
