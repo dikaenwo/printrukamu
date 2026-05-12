@@ -12,7 +12,7 @@ const app = express()
 app.use(cors())
 app.use(express.json({ limit: '50mb' }))  // limit besar untuk file base64
 
-const PORT = process.env.PORT || 5001
+const PORT = process.env.PORT || 5050
 const isProduction = process.env.MIDTRANS_IS_PRODUCTION === 'true'
 const serverKey = process.env.MIDTRANS_SERVER_KEY
 const clientKey = process.env.MIDTRANS_CLIENT_KEY
