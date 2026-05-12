@@ -1,0 +1,65 @@
+@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;700&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap');
+
+:root {
+  --bg: #f6efe2;
+  --bg-deep: #ead9bf;
+  --surface: rgba(255, 250, 242, 0.82);
+  --surface-strong: #fffaf3;
+  --text: #1f1a16;
+  --muted: #6f665d;
+  --line: rgba(31, 26, 22, 0.1);
+  --accent: #bc532b;
+  --accent-strong: #8f3319;
+  --accent-soft: rgba(188, 83, 43, 0.12);
+  --shadow-soft: 0 30px 80px rgba(84, 57, 30, 0.13);
+  --font-body: 'Plus Jakarta Sans', sans-serif;
+  --font-display: 'Space Grotesk', sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  font-family: var(--font-body);
+  color: var(--text);
+  background:
+    radial-gradient(circle at top left, rgba(255, 186, 112, 0.36), transparent 26%),
+    radial-gradient(circle at bottom right, rgba(66, 184, 148, 0.16), transparent 24%),
+    linear-gradient(135deg, #fff8ed 0%, var(--bg) 50%, var(--bg-deep) 100%);
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  background-image:
+    linear-gradient(rgba(31, 26, 22, 0.025) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(31, 26, 22, 0.025) 1px, transparent 1px);
+  background-size: 28px 28px;
+  mask-image: linear-gradient(to bottom, rgba(0, 0, 0, 0.75), transparent 92%);
+}
+
+button,
+input,
+select {
+  font: inherit;
+}
+
+button {
+  color: inherit;
+}
+
+#root {
+  min-height: 100vh;
+}
