@@ -69,15 +69,14 @@ app.get('/api/health', (_req, res) => {
   res.json({ ok: true, service: 'rukkamu-print-api', mode: isProduction ? 'production' : 'sandbox', printer: PRINTER_NAME })
 })
 
-// Ink level — pakai tool 'ink' (libinklevel) yang query langsung via USB
-// Driver Brother T720DW tidak expose marker-levels via IPP, jadi pakai tool ink
+// Ink level — pakai tool 'ink -p usb' yang query langsung via USB device
 // Install di Raspberry Pi: sudo apt install ink
 app.get('/api/ink-levels', (_req, res) => {
   const colorMap = {
     black: '#1a1a1a', cyan: '#00b4d8', magenta: '#e040fb', yellow: '#ffd600',
   }
 
-  // Parse output format "Black: 75%" atau "Black:  ###.....  75%"
+  // Parse baris format "Black: 75%" atau "Black:  ###.....  75%"
   const parseInk = (raw) =>
     raw.trim().split('\n')
       .map((line) => {
@@ -90,19 +89,19 @@ app.get('/api/ink-levels', (_req, res) => {
       })
       .filter(Boolean)
 
-  // Coba beberapa profile Brother secara berurutan
-  const profiles = ['brother_t720dw', 'brother', 'brother2', 'brother3', 'brother4']
+  // Coba USB port 0 dulu (-p usb), lalu port 1 (-p usb -n 1) sebagai fallback
+  const cmds = ['ink -p usb 2>/dev/null', 'ink -p usb -n 1 2>/dev/null']
 
   const tryNext = (i) => {
-    if (i >= profiles.length) {
-      console.error('[INK] Semua profile brother gagal')
+    if (i >= cmds.length) {
+      console.error('[INK] Semua percobaan USB gagal')
       return res.json({
         available: false,
-        reason: 'Model ini tidak didukung oleh tool ink. Install dulu: sudo apt install ink',
+        reason: 'Tidak bisa membaca level tinta via USB. Pastikan printer menyala & tool ink terinstall: sudo apt install ink',
       })
     }
 
-    exec(`ink -p ${profiles[i]} 2>/dev/null`, { timeout: 5000 }, (err, stdout) => {
+    exec(cmds[i], { timeout: 5000 }, (err, stdout) => {
       if (!err && stdout && /\d+\s*%/.test(stdout)) {
         const inks = parseInk(stdout)
         if (inks.length) {
