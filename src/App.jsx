@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useRef, useState } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
 import {
   AlertCircle,
@@ -78,24 +78,7 @@ function App() {
   const [isAnalyzing, setIsAnalyzing] = useState(false)
   const [isProcessing, setIsProcessing] = useState(false)
   const [error, setError] = useState(null)
-  const [inkData, setInkData] = useState(null)
   const fileInputRef = useRef(null)
-
-  // ─── Fetch ink levels ───────────────────────────────────────────────────────
-  useEffect(() => {
-    const fetchInk = async () => {
-      try {
-        const res = await fetch(`${API_BASE_URL}/api/ink-levels`)
-        const data = await res.json()
-        setInkData(data)
-      } catch {
-        setInkData({ available: false, reason: 'Tidak dapat terhubung ke server.' })
-      }
-    }
-    fetchInk()
-    const interval = setInterval(fetchInk, 60_000) // refresh setiap 60 detik
-    return () => clearInterval(interval)
-  }, [])
 
   // ─── File analysis ──────────────────────────────────────────────────────────
   const analyzeFile = async (fileObject) => {
@@ -580,41 +563,6 @@ function App() {
             <div><span>Metode bayar</span><strong>QRIS / Snap</strong></div>
           </div>
 
-          {/* ── Ink Levels ── */}
-          <div className="ink-panel">
-            <p className="section-tag" style={{ marginBottom: '0.75rem' }}>Level Tinta Printer</p>
-            {inkData === null && (
-              <div className="ink-loading">
-                <Loader2 size={14} className="spin-icon" />
-                <span>Membaca level tinta...</span>
-              </div>
-            )}
-            {inkData && !inkData.available && (
-              <div className="ink-unavailable">
-                <AlertCircle size={14} />
-                <span>{inkData.reason || 'Data tinta tidak tersedia.'}</span>
-              </div>
-            )}
-            {inkData?.available && inkData.inks?.map((ink) => (
-              <div key={ink.name} className="ink-row">
-                <div className="ink-label">
-                  <span className="ink-dot" style={{ background: ink.color }} />
-                  <span>{ink.name}</span>
-                  <strong className={ink.percent <= 20 ? 'ink-low' : ''}>{ink.percent}%</strong>
-                </div>
-                <div className="ink-track">
-                  <div
-                    className="ink-fill"
-                    style={{
-                      width: `${ink.percent}%`,
-                      background: ink.color,
-                      opacity: ink.name === 'Black' ? 1 : 0.85,
-                    }}
-                  />
-                </div>
-              </div>
-            ))}
-          </div>
           <div className={`status-panel status-${step}`}>
             <div className="status-icon">
               {step < 3 ? <CheckCircle2 size={18} /> : <Printer size={18} />}

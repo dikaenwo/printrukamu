@@ -69,52 +69,7 @@ app.get('/api/health', (_req, res) => {
   res.json({ ok: true, service: 'rukkamu-print-api', mode: isProduction ? 'production' : 'sandbox', printer: PRINTER_NAME })
 })
 
-// Ink level — pakai tool 'ink -p usb' yang query langsung via USB device
-// Install di Raspberry Pi: sudo apt install ink
-app.get('/api/ink-levels', (_req, res) => {
-  const colorMap = {
-    black: '#1a1a1a', cyan: '#00b4d8', magenta: '#e040fb', yellow: '#ffd600',
-  }
 
-  // Parse baris format "Black: 75%" atau "Black:  ###.....  75%"
-  const parseInk = (raw) =>
-    raw.trim().split('\n')
-      .map((line) => {
-        const m = line.match(/^([\w\s]+?)\s*[:\-]+.*?(\d+)\s*%/)
-        if (!m) return null
-        const name = m[1].trim()
-        const pct  = Math.min(100, Math.max(0, parseInt(m[2], 10)))
-        const key  = name.toLowerCase().replace(/[^a-z]/g, '')
-        return { name, percent: pct, color: colorMap[key] || '#888888' }
-      })
-      .filter(Boolean)
-
-  // Coba USB port 0 dulu (-p usb), lalu port 1 (-p usb -n 1) sebagai fallback
-  const cmds = ['ink -p usb 2>/dev/null', 'ink -p usb -n 1 2>/dev/null']
-
-  const tryNext = (i) => {
-    if (i >= cmds.length) {
-      console.error('[INK] Semua percobaan USB gagal')
-      return res.json({
-        available: false,
-        reason: 'Tidak bisa membaca level tinta via USB. Pastikan printer menyala & tool ink terinstall: sudo apt install ink',
-      })
-    }
-
-    exec(cmds[i], { timeout: 5000 }, (err, stdout) => {
-      if (!err && stdout && /\d+\s*%/.test(stdout)) {
-        const inks = parseInk(stdout)
-        if (inks.length) {
-          console.log('[INK]', inks.map((k) => `${k.name}:${k.percent}%`).join(' | '))
-          return res.json({ available: true, inks })
-        }
-      }
-      tryNext(i + 1)
-    })
-  }
-
-  tryNext(0)
-})
 
 // Expose client key ke frontend untuk Snap.js
 app.get('/api/config', (_req, res) => {
