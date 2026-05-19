@@ -167,6 +167,7 @@ function App() {
         copies: config.copies,
         duplex: config.duplex,
         paperSize: config.paperSize,
+        color: config.color,
       }),
     })
     const data = await response.json()

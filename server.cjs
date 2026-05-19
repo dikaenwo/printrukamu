@@ -107,7 +107,7 @@ app.get('/api/transaction-status/:orderId', async (req, res) => {
 
 // Print endpoint — menerima file sebagai base64 JSON (lebih reliable dari multipart)
 app.post('/api/print', (req, res) => {
-  const { filename, data, copies = 1, duplex = true, paperSize = 'A4' } = req.body || {}
+  const { filename, data, copies = 1, duplex = true, paperSize = 'A4', color = false } = req.body || {}
 
   if (!data) return res.status(400).json({ error: 'Tidak ada data file yang dikirim.' })
 
@@ -123,7 +123,9 @@ app.post('/api/print', (req, res) => {
   const numCopies = Math.max(1, parseInt(copies, 10) || 1)
   const media = { A4: 'A4', Letter: 'Letter', Legal: 'Legal' }[paperSize] || 'A4'
   const sides = duplex === true || duplex === 'true' ? 'two-sided-long-edge' : 'one-sided'
-  const command = `lp -d "${PRINTER_NAME}" -n ${numCopies} -o media=${media} -o sides=${sides} "${tempPath}"`
+  const isColor = color === true || color === 'true'
+  const colorOpts = isColor ? '' : '-o ColorModel=Gray -o print-color-mode=monochrome'
+  const command = `lp -d "${PRINTER_NAME}" -n ${numCopies} -o media=${media} -o sides=${sides} ${colorOpts} "${tempPath}"`
   console.log('[PRINT]', command)
 
   exec(command, (error, stdout, stderr) => {
