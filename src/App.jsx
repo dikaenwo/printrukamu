@@ -32,9 +32,9 @@ const STEPS = [
   { label: 'Cetak', hint: 'Kirim ke printer' },
 ]
 
-const PRICE = { bw: 500, color: 2000, service: 1000, priority: 2500 }
+const PRICE = { bw: 500, color: 2000, service: 1000 }
 
-const defaultConfig = { copies: 1, color: false, duplex: true, priority: false, paperSize: 'A4' }
+const defaultConfig = { copies: 1, color: false, duplex: false, paperSize: 'A4' }
 
 function formatCurrency(value) {
   return new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', maximumFractionDigits: 0 }).format(value)
@@ -138,7 +138,7 @@ function App() {
   const sheetCount = file ? Math.ceil(file.pages / (config.duplex ? 2 : 1)) * config.copies : 0
   const pageRate = config.color ? PRICE.color : PRICE.bw
   const printCost = file ? file.pages * config.copies * pageRate : 0
-  const serviceCost = PRICE.service + (config.priority ? PRICE.priority : 0)
+  const serviceCost = PRICE.service
   const totalPrice = file ? printCost + serviceCost : 0
   const currentStepTitle =
     step === 0 ? 'Upload Dokumen' : step === 1 ? 'Konfigurasi Cetak' : step === 2 ? 'Pembayaran' : 'Proses Print'
@@ -432,10 +432,6 @@ function App() {
                       <button type="button" className={`toggle-card ${config.duplex ? 'selected' : ''}`} onClick={() => updateConfig('duplex', !config.duplex)}>
                         <div><strong>Bolak-balik</strong><span>Hemat kertas untuk dokumen multi-halaman</span></div>
                         <span className="toggle-state">{config.duplex ? 'Aktif' : 'Nonaktif'}</span>
-                      </button>
-                      <button type="button" className={`toggle-card ${config.priority ? 'selected priority' : ''}`} onClick={() => updateConfig('priority', !config.priority)}>
-                        <div><strong>Prioritas cepat</strong><span>Tambah biaya layanan untuk antrean lebih singkat</span></div>
-                        <span className="toggle-state">{config.priority ? '+ Express' : 'Standar'}</span>
                       </button>
                     </div>
                   </section>
