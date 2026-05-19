@@ -19,6 +19,7 @@ const clientKey = process.env.MIDTRANS_CLIENT_KEY
 const qrisAcquirer = process.env.MIDTRANS_QRIS_ACQUIRER || 'gopay'
 const midtransFinishPath = process.env.MIDTRANS_FINISH_PATH || '/'
 const PRINTER_NAME = process.env.PRINTER_NAME || 'Brother_T720DW'
+const PRINTER_IP   = process.env.PRINTER_IP   || ''
 
 const snap = new midtransClient.Snap({ isProduction, serverKey, clientKey })
 
@@ -67,6 +68,58 @@ app.get('/ping', (_req, res) => res.json({ pong: true, time: new Date().toISOStr
 // ─── Routes ───────────────────────────────────────────────────────────────────
 app.get('/api/health', (_req, res) => {
   res.json({ ok: true, service: 'rukkamu-print-api', mode: isProduction ? 'production' : 'sandbox', printer: PRINTER_NAME })
+})
+
+// Ink level — query SNMP ke printer (butuh PRINTER_IP di .env & snmp package di Raspberry Pi)
+app.get('/api/ink-levels', (_req, res) => {
+  if (!PRINTER_IP) {
+    return res.json({ available: false, reason: 'PRINTER_IP belum dikonfigurasi di .env' })
+  }
+
+  // RFC 3805 Printer-MIB OIDs
+  // .1.3.6.1.2.1.43.11.1.1.9 = marker-supplies-current-level
+  // .1.3.6.1.2.1.43.11.1.1.8 = marker-supplies-max-capacity
+  const cmdCurrent = `snmpwalk -v1 -c public -OvQ ${PRINTER_IP} 1.3.6.1.2.1.43.11.1.1.9`
+  const cmdMax     = `snmpwalk -v1 -c public -OvQ ${PRINTER_IP} 1.3.6.1.2.1.43.11.1.1.8`
+
+  exec(cmdCurrent, { timeout: 5000 }, (err1, out1) => {
+    if (err1) {
+      console.error('[INK] SNMP current error:', err1.message)
+      return res.json({ available: false, reason: 'Gagal baca level tinta via SNMP. Pastikan printer menyala dan SNMP aktif.' })
+    }
+    exec(cmdMax, { timeout: 5000 }, (err2, out2) => {
+      if (err2) {
+        console.error('[INK] SNMP max error:', err2.message)
+        return res.json({ available: false, reason: 'Gagal baca kapasitas tinta via SNMP.' })
+      }
+
+      const parse = (raw) =>
+        raw.trim().split('\n')
+          .map((l) => parseInt(l.trim(), 10))
+          .filter((n) => !isNaN(n))
+
+      const current = parse(out1)
+      const max     = parse(out2)
+
+      // Brother T720DW: urutan supply = Black, Cyan, Magenta, Yellow
+      const labels = [
+        { name: 'Black',   color: '#1a1a1a' },
+        { name: 'Cyan',    color: '#00b4d8' },
+        { name: 'Magenta', color: '#e040fb' },
+        { name: 'Yellow',  color: '#ffd600' },
+      ]
+
+      const inks = labels.map((label, i) => {
+        const cur = current[i] ?? 0
+        const mx  = max[i] ?? 100
+        const pct = mx > 0 ? Math.min(100, Math.round((cur / mx) * 100)) : 0
+        return { ...label, current: cur, max: mx, percent: pct }
+      })
+
+      console.log('[INK]', inks.map((k) => `${k.name}:${k.percent}%`).join(' | '))
+      return res.json({ available: true, inks })
+    })
+  })
 })
 
 // Expose client key ke frontend untuk Snap.js
