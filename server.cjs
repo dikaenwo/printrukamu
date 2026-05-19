@@ -109,7 +109,7 @@ app.get('/api/transaction-status/:orderId', async (req, res) => {
 
 // Print endpoint — menerima file sebagai base64 JSON (lebih reliable dari multipart)
 app.post('/api/print', (req, res) => {
-  const { filename, data, copies = 1, duplex = true, paperSize = 'A4', color = false } = req.body || {}
+  const { filename, data, copies = 1, duplex = false, paperSize = 'A4', color = false } = req.body || {}
 
   if (!data) return res.status(400).json({ error: 'Tidak ada data file yang dikirim.' })
 
@@ -123,23 +123,49 @@ app.post('/api/print', (req, res) => {
   }
 
   const numCopies = Math.max(1, parseInt(copies, 10) || 1)
-  const media = { A4: 'A4', Letter: 'Letter', Legal: 'Legal' }[paperSize] || 'A4'
-  const sides = duplex === true || duplex === 'true' ? 'two-sided-long-edge' : 'one-sided'
-  const isColor = color === true || color === 'true'
+  const media     = { A4: 'A4', Letter: 'Letter', Legal: 'Legal' }[paperSize] || 'A4'
+  const sides     = duplex === true || duplex === 'true' ? 'two-sided-long-edge' : 'one-sided'
+  const isColor   = color === true || color === 'true'
   const colorOpts = isColor ? '' : '-o ColorModel=Gray -o print-color-mode=monochrome'
-  const command = `lp -d "${PRINTER_NAME}" -n ${numCopies} -o media=${media} -o sides=${sides} ${colorOpts} "${tempPath}"`
-  console.log('[PRINT]', command)
 
-  exec(command, (error, stdout, stderr) => {
-    try { fs.unlinkSync(tempPath) } catch {}
-    if (error) {
-      console.error('[PRINT] Error:', stderr || error.message)
-      return res.status(500).json({ error: `Gagal mencetak: ${stderr?.trim() || error.message}` })
-    }
-    const jobId = (stdout.match(/request id is (\S+)/) || [])[1] || 'unknown'
-    console.log('[PRINT] Job:', stdout.trim())
-    return res.json({ ok: true, jobId, message: stdout.trim() })
-  })
+  // Ekstensi yang tidak didukung CUPS secara langsung — perlu konversi ke PDF dulu
+  const needsConvert = ['.docx', '.doc', '.odt', '.jpg', '.jpeg', '.png', '.webp'].includes(ext)
+
+  const doPrint = (fileToPrint, cleanup = []) => {
+    const command = `lp -d "${PRINTER_NAME}" -n ${numCopies} -o media=${media} -o sides=${sides} ${colorOpts} "${fileToPrint}"`
+    console.log('[PRINT]', command)
+    exec(command, (error, stdout, stderr) => {
+      // Bersihkan semua file temp
+      ;[tempPath, ...cleanup].forEach((f) => { try { fs.unlinkSync(f) } catch {} })
+      if (error) {
+        console.error('[PRINT] Error:', stderr || error.message)
+        return res.status(500).json({ error: `Gagal mencetak: ${stderr?.trim() || error.message}` })
+      }
+      const jobId = (stdout.match(/request id is (\S+)/) || [])[1] || 'unknown'
+      console.log('[PRINT] Job:', stdout.trim())
+      return res.json({ ok: true, jobId, message: stdout.trim() })
+    })
+  }
+
+  if (needsConvert) {
+    // Konversi ke PDF via LibreOffice headless
+    // Install di Raspberry Pi: sudo apt install libreoffice
+    const convertCmd = `libreoffice --headless --convert-to pdf --outdir "${os.tmpdir()}" "${tempPath}"`
+    console.log('[CONVERT]', convertCmd)
+    exec(convertCmd, { timeout: 30000 }, (convErr, convOut, convStderr) => {
+      if (convErr) {
+        try { fs.unlinkSync(tempPath) } catch {}
+        console.error('[CONVERT] Error:', convStderr || convErr.message)
+        return res.status(500).json({ error: `Gagal konversi file ke PDF: ${convStderr?.trim() || convErr.message}. Pastikan LibreOffice terinstall: sudo apt install libreoffice` })
+      }
+      // LibreOffice output: file.docx → file.pdf di folder yang sama
+      const pdfPath = path.join(os.tmpdir(), path.basename(tempPath, ext) + '.pdf')
+      console.log('[CONVERT] OK →', pdfPath)
+      doPrint(pdfPath, [pdfPath])
+    })
+  } else {
+    doPrint(tempPath)
+  }
 })
 
 app.use((req, res) => {
