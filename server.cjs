@@ -69,76 +69,52 @@ app.get('/api/health', (_req, res) => {
   res.json({ ok: true, service: 'rukkamu-print-api', mode: isProduction ? 'production' : 'sandbox', printer: PRINTER_NAME })
 })
 
-// Ink level — query CUPS via IPP lokal (bekerja untuk printer USB maupun WiFi)
-// Tidak butuh IP printer, CUPS sudah mengetahui status printer yang terhubung
-// Syarat: ipptool tersedia (bagian dari cups-client: sudo apt install cups-client)
+// Ink level — pakai tool 'ink' (libinklevel) yang query langsung via USB
+// Driver Brother T720DW tidak expose marker-levels via IPP, jadi pakai tool ink
+// Install di Raspberry Pi: sudo apt install ink
 app.get('/api/ink-levels', (_req, res) => {
-  const printerUri = `ipp://localhost/printers/${PRINTER_NAME}`
-  const tmpFile    = path.join(os.tmpdir(), `ink-${Date.now()}.test`)
-
-  // IPP test file untuk meminta atribut marker dari CUPS
-  const testBody = [
-    '{',
-    '  NAME "Get Ink Levels"',
-    '  OPERATION Get-Printer-Attributes',
-    '  GROUP operation-attributes-tag',
-    '  ATTR charset attributes-charset utf-8',
-    '  ATTR naturalLanguage attributes-natural-language en',
-    `  ATTR uri printer-uri "${printerUri}"`,
-    '  ATTR keyword requested-attributes "marker-levels,marker-names,marker-colors,marker-types"',
-    '  STATUS successful-ok',
-    '}',
-  ].join('\n')
-
-  try { fs.writeFileSync(tmpFile, testBody) } catch (e) {
-    return res.json({ available: false, reason: `Gagal tulis file sementara: ${e.message}` })
+  const colorMap = {
+    black: '#1a1a1a', cyan: '#00b4d8', magenta: '#e040fb', yellow: '#ffd600',
   }
 
-  exec(`ipptool "${printerUri}" "${tmpFile}"`, { timeout: 8000 }, (err, stdout) => {
-    try { fs.unlinkSync(tmpFile) } catch {}
+  // Parse output format "Black: 75%" atau "Black:  ###.....  75%"
+  const parseInk = (raw) =>
+    raw.trim().split('\n')
+      .map((line) => {
+        const m = line.match(/^([\w\s]+?)\s*[:\-]+.*?(\d+)\s*%/)
+        if (!m) return null
+        const name = m[1].trim()
+        const pct  = Math.min(100, Math.max(0, parseInt(m[2], 10)))
+        const key  = name.toLowerCase().replace(/[^a-z]/g, '')
+        return { name, percent: pct, color: colorMap[key] || '#888888' }
+      })
+      .filter(Boolean)
 
-    if (err || !stdout || !stdout.includes('marker-levels')) {
-      console.error('[INK] ipptool error:', err?.message || 'no marker data')
+  // Coba beberapa profile Brother secara berurutan
+  const profiles = ['brother_t720dw', 'brother', 'brother2', 'brother3', 'brother4']
+
+  const tryNext = (i) => {
+    if (i >= profiles.length) {
+      console.error('[INK] Semua profile brother gagal')
       return res.json({
         available: false,
-        reason: 'Driver tidak melaporkan level tinta. Pastikan printer menyala & cups-client terinstall (sudo apt install cups-client).',
+        reason: 'Model ini tidak didukung oleh tool ink. Install dulu: sudo apt install ink',
       })
     }
 
-    // ipptool output per-baris: "    marker-levels (integer): 75"
-    const extractAll = (text, key) =>
-      [...text.matchAll(new RegExp(`${key}[^:]*:\\s*(.+)`, 'g'))]
-        .map((m) => m[1].trim().replace(/^"|"$/g, ''))
+    exec(`ink -p ${profiles[i]} 2>/dev/null`, { timeout: 5000 }, (err, stdout) => {
+      if (!err && stdout && /\d+\s*%/.test(stdout)) {
+        const inks = parseInk(stdout)
+        if (inks.length) {
+          console.log('[INK]', inks.map((k) => `${k.name}:${k.percent}%`).join(' | '))
+          return res.json({ available: true, inks })
+        }
+      }
+      tryNext(i + 1)
+    })
+  }
 
-    const levelStrs = extractAll(stdout, 'marker-levels')
-    const names     = extractAll(stdout, 'marker-names')
-    const rawColors = extractAll(stdout, 'marker-colors')
-
-    if (!levelStrs.length) {
-      return res.json({ available: false, reason: 'Tidak ada data level tinta dari CUPS.' })
-    }
-
-    // Map IPP hex colors ke warna display yang lebih bagus
-    const colorMap = {
-      '#000000': '#1a1a1a', '#000': '#1a1a1a',
-      '#00ffff': '#00b4d8', '#00FFFF': '#00b4d8',
-      '#ff00ff': '#e040fb', '#FF00FF': '#e040fb',
-      '#ffff00': '#ffd600', '#FFFF00': '#ffd600',
-    }
-    const toDisplay = (hex) => colorMap[hex] || colorMap[hex?.toLowerCase()] || hex || '#888888'
-
-    const fallbackNames  = ['Black', 'Cyan', 'Magenta', 'Yellow']
-    const fallbackColors = ['#1a1a1a', '#00b4d8', '#e040fb', '#ffd600']
-
-    const inks = levelStrs.map((lvl, i) => ({
-      name:    names[i]     || fallbackNames[i]  || `Tinta ${i + 1}`,
-      percent: Math.min(100, Math.max(0, parseInt(lvl, 10) || 0)),
-      color:   toDisplay(rawColors[i]) || fallbackColors[i] || '#888888',
-    }))
-
-    console.log('[INK]', inks.map((k) => `${k.name}:${k.percent}%`).join(' | '))
-    return res.json({ available: true, inks })
-  })
+  tryNext(0)
 })
 
 // Expose client key ke frontend untuk Snap.js
