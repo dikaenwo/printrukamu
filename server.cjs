@@ -19,7 +19,6 @@ const clientKey = process.env.MIDTRANS_CLIENT_KEY
 const qrisAcquirer = process.env.MIDTRANS_QRIS_ACQUIRER || 'gopay'
 const midtransFinishPath = process.env.MIDTRANS_FINISH_PATH || '/'
 const PRINTER_NAME = process.env.PRINTER_NAME || 'Brother_T720DW'
-const PRINTER_IP   = process.env.PRINTER_IP   || ''
 
 const snap = new midtransClient.Snap({ isProduction, serverKey, clientKey })
 
@@ -70,55 +69,75 @@ app.get('/api/health', (_req, res) => {
   res.json({ ok: true, service: 'rukkamu-print-api', mode: isProduction ? 'production' : 'sandbox', printer: PRINTER_NAME })
 })
 
-// Ink level — query SNMP ke printer (butuh PRINTER_IP di .env & snmp package di Raspberry Pi)
+// Ink level — query CUPS via IPP lokal (bekerja untuk printer USB maupun WiFi)
+// Tidak butuh IP printer, CUPS sudah mengetahui status printer yang terhubung
+// Syarat: ipptool tersedia (bagian dari cups-client: sudo apt install cups-client)
 app.get('/api/ink-levels', (_req, res) => {
-  if (!PRINTER_IP) {
-    return res.json({ available: false, reason: 'PRINTER_IP belum dikonfigurasi di .env' })
+  const printerUri = `ipp://localhost/printers/${PRINTER_NAME}`
+  const tmpFile    = path.join(os.tmpdir(), `ink-${Date.now()}.test`)
+
+  // IPP test file untuk meminta atribut marker dari CUPS
+  const testBody = [
+    '{',
+    '  NAME "Get Ink Levels"',
+    '  OPERATION Get-Printer-Attributes',
+    '  GROUP operation-attributes-tag',
+    '  ATTR charset attributes-charset utf-8',
+    '  ATTR naturalLanguage attributes-natural-language en',
+    `  ATTR uri printer-uri "${printerUri}"`,
+    '  ATTR keyword requested-attributes "marker-levels,marker-names,marker-colors,marker-types"',
+    '  STATUS successful-ok',
+    '}',
+  ].join('\n')
+
+  try { fs.writeFileSync(tmpFile, testBody) } catch (e) {
+    return res.json({ available: false, reason: `Gagal tulis file sementara: ${e.message}` })
   }
 
-  // RFC 3805 Printer-MIB OIDs
-  // .1.3.6.1.2.1.43.11.1.1.9 = marker-supplies-current-level
-  // .1.3.6.1.2.1.43.11.1.1.8 = marker-supplies-max-capacity
-  const cmdCurrent = `snmpwalk -v1 -c public -OvQ ${PRINTER_IP} 1.3.6.1.2.1.43.11.1.1.9`
-  const cmdMax     = `snmpwalk -v1 -c public -OvQ ${PRINTER_IP} 1.3.6.1.2.1.43.11.1.1.8`
+  exec(`ipptool "${printerUri}" "${tmpFile}"`, { timeout: 8000 }, (err, stdout) => {
+    try { fs.unlinkSync(tmpFile) } catch {}
 
-  exec(cmdCurrent, { timeout: 5000 }, (err1, out1) => {
-    if (err1) {
-      console.error('[INK] SNMP current error:', err1.message)
-      return res.json({ available: false, reason: 'Gagal baca level tinta via SNMP. Pastikan printer menyala dan SNMP aktif.' })
-    }
-    exec(cmdMax, { timeout: 5000 }, (err2, out2) => {
-      if (err2) {
-        console.error('[INK] SNMP max error:', err2.message)
-        return res.json({ available: false, reason: 'Gagal baca kapasitas tinta via SNMP.' })
-      }
-
-      const parse = (raw) =>
-        raw.trim().split('\n')
-          .map((l) => parseInt(l.trim(), 10))
-          .filter((n) => !isNaN(n))
-
-      const current = parse(out1)
-      const max     = parse(out2)
-
-      // Brother T720DW: urutan supply = Black, Cyan, Magenta, Yellow
-      const labels = [
-        { name: 'Black',   color: '#1a1a1a' },
-        { name: 'Cyan',    color: '#00b4d8' },
-        { name: 'Magenta', color: '#e040fb' },
-        { name: 'Yellow',  color: '#ffd600' },
-      ]
-
-      const inks = labels.map((label, i) => {
-        const cur = current[i] ?? 0
-        const mx  = max[i] ?? 100
-        const pct = mx > 0 ? Math.min(100, Math.round((cur / mx) * 100)) : 0
-        return { ...label, current: cur, max: mx, percent: pct }
+    if (err || !stdout || !stdout.includes('marker-levels')) {
+      console.error('[INK] ipptool error:', err?.message || 'no marker data')
+      return res.json({
+        available: false,
+        reason: 'Driver tidak melaporkan level tinta. Pastikan printer menyala & cups-client terinstall (sudo apt install cups-client).',
       })
+    }
 
-      console.log('[INK]', inks.map((k) => `${k.name}:${k.percent}%`).join(' | '))
-      return res.json({ available: true, inks })
-    })
+    // ipptool output per-baris: "    marker-levels (integer): 75"
+    const extractAll = (text, key) =>
+      [...text.matchAll(new RegExp(`${key}[^:]*:\\s*(.+)`, 'g'))]
+        .map((m) => m[1].trim().replace(/^"|"$/g, ''))
+
+    const levelStrs = extractAll(stdout, 'marker-levels')
+    const names     = extractAll(stdout, 'marker-names')
+    const rawColors = extractAll(stdout, 'marker-colors')
+
+    if (!levelStrs.length) {
+      return res.json({ available: false, reason: 'Tidak ada data level tinta dari CUPS.' })
+    }
+
+    // Map IPP hex colors ke warna display yang lebih bagus
+    const colorMap = {
+      '#000000': '#1a1a1a', '#000': '#1a1a1a',
+      '#00ffff': '#00b4d8', '#00FFFF': '#00b4d8',
+      '#ff00ff': '#e040fb', '#FF00FF': '#e040fb',
+      '#ffff00': '#ffd600', '#FFFF00': '#ffd600',
+    }
+    const toDisplay = (hex) => colorMap[hex] || colorMap[hex?.toLowerCase()] || hex || '#888888'
+
+    const fallbackNames  = ['Black', 'Cyan', 'Magenta', 'Yellow']
+    const fallbackColors = ['#1a1a1a', '#00b4d8', '#e040fb', '#ffd600']
+
+    const inks = levelStrs.map((lvl, i) => ({
+      name:    names[i]     || fallbackNames[i]  || `Tinta ${i + 1}`,
+      percent: Math.min(100, Math.max(0, parseInt(lvl, 10) || 0)),
+      color:   toDisplay(rawColors[i]) || fallbackColors[i] || '#888888',
+    }))
+
+    console.log('[INK]', inks.map((k) => `${k.name}:${k.percent}%`).join(' | '))
+    return res.json({ available: true, inks })
   })
 })
 
