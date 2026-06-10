@@ -22,6 +22,38 @@ const PRINTER_NAME = process.env.PRINTER_NAME || 'Brother_T720DW'
 
 const snap = new midtransClient.Snap({ isProduction, serverKey, clientKey })
 
+// ─── Transaction Store (JSON file) ───────────────────────────────────────────
+const TX_FILE = path.join(__dirname, 'transactions.json')
+
+function loadTransactions() {
+  try {
+    if (!fs.existsSync(TX_FILE)) { fs.writeFileSync(TX_FILE, '[]', 'utf8') }
+    const raw = fs.readFileSync(TX_FILE, 'utf8')
+    return JSON.parse(raw || '[]')
+  } catch {
+    return []
+  }
+}
+
+function saveTransaction(tx) {
+  const all = loadTransactions()
+  // Avoid duplicates by order_id
+  if (all.some((t) => t.order_id === tx.order_id)) {
+    console.log(`[TX] Duplicate skipped: ${tx.order_id}`)
+    return
+  }
+  all.push({
+    order_id: tx.order_id,
+    amount: Number(tx.amount) || 0,
+    payment_type: tx.payment_type || 'unknown',
+    status: tx.status || 'settlement',
+    items: tx.items || [],
+    created_at: tx.created_at || new Date().toISOString(),
+  })
+  fs.writeFileSync(TX_FILE, JSON.stringify(all, null, 2), 'utf8')
+  console.log(`[TX] Recorded: ${tx.order_id} — Rp ${tx.amount}`)
+}
+
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 function truncateItemName(name = '', maxLength = 50) {
   return name.length <= maxLength ? name : `${name.slice(0, maxLength - 3)}...`
@@ -166,6 +198,130 @@ app.post('/api/print', (req, res) => {
   } else {
     doPrint(tempPath)
   }
+})
+
+// ─── Transaction Recording ───────────────────────────────────────────────────
+// Called from frontend after successful payment
+app.post('/api/record-transaction', (req, res) => {
+  const { order_id, amount, items, payment_type } = req.body || {}
+  if (!order_id || !amount) return res.status(400).json({ error: 'order_id dan amount wajib diisi.' })
+
+  saveTransaction({
+    order_id,
+    amount,
+    payment_type: payment_type || 'snap',
+    status: 'settlement',
+    items: items || [],
+    created_at: new Date().toISOString(),
+  })
+  return res.json({ ok: true, message: 'Transaksi tercatat.' })
+})
+
+// ─── Midtrans Notification Webhook ──────────────────────────────────────────
+// Midtrans akan POST ke URL ini saat status transaksi berubah
+app.post('/api/midtrans-notification', async (req, res) => {
+  try {
+    const notification = req.body
+    const orderId = notification.order_id
+    const transactionStatus = notification.transaction_status
+    const paymentType = notification.payment_type
+    const grossAmount = Number(notification.gross_amount) || 0
+
+    console.log(`[MIDTRANS-NOTIF] ${orderId} → ${transactionStatus} (${paymentType})`)
+
+    if (['settlement', 'capture'].includes(transactionStatus)) {
+      saveTransaction({
+        order_id: orderId,
+        amount: grossAmount,
+        payment_type: paymentType,
+        status: transactionStatus,
+        items: [{ name: 'Print Job', price: grossAmount, quantity: 1 }],
+        created_at: notification.transaction_time || new Date().toISOString(),
+      })
+    }
+
+    return res.status(200).json({ ok: true })
+  } catch (error) {
+    console.error('[MIDTRANS-NOTIF] Error:', error)
+    return res.status(500).json({ error: error.message })
+  }
+})
+
+// ─── Admin Analytics API ─────────────────────────────────────────────────────
+app.get('/api/admin/analytics', (_req, res) => {
+  const transactions = loadTransactions()
+  const now = new Date()
+
+  // Helper: start of day, week, month
+  const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate())
+  const dayOfWeek = now.getDay() === 0 ? 7 : now.getDay() // Monday=1
+  const startOfWeek = new Date(startOfDay)
+  startOfWeek.setDate(startOfDay.getDate() - (dayOfWeek - 1))
+  const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1)
+
+  let todayRevenue = 0, todayOrders = 0
+  let weekRevenue = 0, weekOrders = 0
+  let monthRevenue = 0, monthOrders = 0
+
+  // Monthly breakdown map: "2026-06" → { revenue, orders }
+  const monthlyMap = {}
+
+  for (const tx of transactions) {
+    const txDate = new Date(tx.created_at)
+    const amount = Number(tx.amount) || 0
+    const monthKey = `${txDate.getFullYear()}-${String(txDate.getMonth() + 1).padStart(2, '0')}`
+
+    // Monthly breakdown
+    if (!monthlyMap[monthKey]) monthlyMap[monthKey] = { revenue: 0, orders: 0 }
+    monthlyMap[monthKey].revenue += amount
+    monthlyMap[monthKey].orders += 1
+
+    // Today
+    if (txDate >= startOfDay) {
+      todayRevenue += amount
+      todayOrders += 1
+    }
+    // This week
+    if (txDate >= startOfWeek) {
+      weekRevenue += amount
+      weekOrders += 1
+    }
+    // This month
+    if (txDate >= startOfMonth) {
+      monthRevenue += amount
+      monthOrders += 1
+    }
+  }
+
+  // Build monthly breakdown array sorted desc
+  const monthlyBreakdown = Object.entries(monthlyMap)
+    .map(([month, data]) => ({
+      month,
+      revenue: data.revenue,
+      orders: data.orders,
+      intechrest: Math.round(data.revenue * 0.2),
+      rukkamu: Math.round(data.revenue * 0.8),
+    }))
+    .sort((a, b) => b.month.localeCompare(a.month))
+
+  // Recent transactions (last 50, newest first)
+  const recentTransactions = [...transactions]
+    .sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
+    .slice(0, 50)
+
+  return res.json({
+    today: { revenue: todayRevenue, orders: todayOrders },
+    thisWeek: { revenue: weekRevenue, orders: weekOrders },
+    thisMonth: { revenue: monthRevenue, orders: monthOrders },
+    intechrestShare: Math.round(monthRevenue * 0.2),
+    rukkmuShare: Math.round(monthRevenue * 0.8),
+    recentTransactions,
+    monthlyBreakdown,
+    totalAllTime: {
+      revenue: transactions.reduce((s, t) => s + (Number(t.amount) || 0), 0),
+      orders: transactions.length,
+    },
+  })
 })
 
 app.use((req, res) => {

@@ -143,6 +143,24 @@ function App() {
   const currentStepTitle =
     step === 0 ? 'Upload Dokumen' : step === 1 ? 'Konfigurasi Cetak' : step === 2 ? 'Pembayaran' : 'Proses Print'
 
+  // ─── Record transaction ke backend ──────────────────────────────────────────
+  const recordTransaction = async (orderId, amount, items) => {
+    try {
+      await fetch(`${API_BASE_URL}/api/record-transaction`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          order_id: orderId,
+          amount,
+          items: items || [],
+          payment_type: 'snap',
+        }),
+      })
+    } catch (err) {
+      console.warn('Gagal mencatat transaksi:', err)
+    }
+  }
+
   // ─── Upload file & cetak (dipanggil setelah bayar) ──────────────────────────
   const sendPrintJob = async () => {
     if (!rawFile || !file) return
@@ -182,6 +200,7 @@ function App() {
       const res = await fetch(`${API_BASE_URL}/api/transaction-status/${orderId}`)
       const data = await res.json()
       if (['settlement', 'capture'].includes(data.transaction_status)) {
+        await recordTransaction(orderId, totalPrice, [{ id: 'PRINT-JOB', price: totalPrice, quantity: 1, name: `Print: ${file?.name || 'document'}` }])
         await sendPrintJob()
         return true
       }
@@ -235,7 +254,8 @@ function App() {
 
       window.snap.pay(txData.token, {
         onSuccess: async () => {
-          // Pembayaran selesai di dalam popup
+          // Pembayaran selesai di dalam popup — record + print
+          await recordTransaction(orderId, totalPrice, [{ id: 'PRINT-JOB', price: totalPrice, quantity: 1, name: `Print: ${file.name}` }])
           try { await sendPrintJob() } catch (e) {
             setError(`Pembayaran berhasil tapi print gagal: ${e.message}`)
           }
