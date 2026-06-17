@@ -160,6 +160,25 @@ function App() {
   const currentStepTitle =
     step === 0 ? 'Upload Dokumen' : step === 1 ? 'Konfigurasi Cetak' : step === 2 ? 'Pembayaran' : 'Proses Print'
 
+  const proceedToPayment = async () => {
+    setIsProcessing(true)
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/admin/paper`)
+      if (res.ok) {
+        const data = await res.json()
+        if (data.count < sheetCount) {
+          setPaperError(true)
+          setIsProcessing(false)
+          return
+        }
+      }
+    } catch (err) {
+      console.warn('Gagal cek kertas', err)
+    }
+    setIsProcessing(false)
+    setStep(2)
+  }
+
   // ─── Record transaction ke backend ──────────────────────────────────────────
   const recordTransaction = async (orderId, amount, items) => {
     try {
@@ -484,8 +503,8 @@ function App() {
 
                 <div className="stage-actions">
                   <button type="button" className="secondary-button" onClick={resetAll}>Ganti Dokumen</button>
-                  <button type="button" className="primary-button" onClick={() => setStep(2)}>
-                    Lanjut ke Pembayaran<ChevronRight size={18} />
+                  <button type="button" className="primary-button" onClick={proceedToPayment} disabled={isProcessing}>
+                    {isProcessing ? <><Loader2 size={16} className="spin-icon" /> Memproses...</> : <>Lanjut ke Pembayaran<ChevronRight size={18} /></>}
                   </button>
                 </div>
               </MotionSection>
