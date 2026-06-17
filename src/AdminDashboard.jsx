@@ -200,11 +200,11 @@ function PaperManager({ paperCount, onUpdate }) {
     }
   }
 
-  const pct = Math.min(100, Math.round((paperCount / 500) * 100))
+  const pct = Math.min(100, Math.round((paperCount / 65) * 100))
   const barColor =
-    paperCount <= 20
+    paperCount <= 10
       ? 'var(--admin-red)'
-      : paperCount <= 50
+      : paperCount <= 25
       ? 'var(--admin-accent)'
       : 'var(--admin-green)'
 
@@ -229,10 +229,10 @@ function PaperManager({ paperCount, onUpdate }) {
         />
       </div>
       <p className="paper-bar-hint">
-        {pct}% kapasitas tray (maks 500 lembar)
+        {pct}% kapasitas tray (maks 65 lembar)
       </p>
 
-      {paperCount <= 20 && (
+      {paperCount <= 10 && (
         <div className="paper-alert" role="alert">
           ⚠️ <strong>Kertas hampir habis!</strong> Sisa {paperCount} lembar — segera isi ulang tray.
         </div>
