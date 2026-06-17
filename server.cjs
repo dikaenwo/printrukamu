@@ -74,6 +74,26 @@ function savePaperCount(count) {
   return safeCount
 }
 
+// ─── Payout Store (JSON file) ─────────────────────────────────────────────────
+const PAYOUTS_FILE = path.join(__dirname, 'payouts.json')
+
+function loadPayouts() {
+  try {
+    if (!fs.existsSync(PAYOUTS_FILE)) { fs.writeFileSync(PAYOUTS_FILE, '{}', 'utf8') }
+    const raw = fs.readFileSync(PAYOUTS_FILE, 'utf8')
+    return JSON.parse(raw || '{}')
+  } catch {
+    return {}
+  }
+}
+
+function savePayout(month, isPaid) {
+  const payouts = loadPayouts()
+  payouts[month] = Boolean(isPaid)
+  fs.writeFileSync(PAYOUTS_FILE, JSON.stringify(payouts, null, 2), 'utf8')
+  return payouts
+}
+
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 function truncateItemName(name = '', maxLength = 50) {
   return name.length <= maxLength ? name : `${name.slice(0, maxLength - 3)}...`
@@ -299,6 +319,13 @@ app.post('/api/admin/paper', (req, res) => {
   }
 })
 
+app.post('/api/admin/payouts', (req, res) => {
+  const { month, isPaid } = req.body || {}
+  if (!month) return res.status(400).json({ error: 'Bulan (month) wajib diisi' })
+  savePayout(month, isPaid)
+  res.json({ ok: true, month, isPaid })
+})
+
 app.get('/api/admin/analytics', (_req, res) => {
   const transactions = loadTransactions()
   const now = new Date()
@@ -344,6 +371,8 @@ app.get('/api/admin/analytics', (_req, res) => {
     }
   }
 
+  const payouts = loadPayouts()
+
   // Build monthly breakdown array sorted desc
   const monthlyBreakdown = Object.entries(monthlyMap)
     .map(([month, data]) => ({
@@ -352,6 +381,7 @@ app.get('/api/admin/analytics', (_req, res) => {
       orders: data.orders,
       intechrest: Math.round(data.revenue * 0.2),
       rukkamu: Math.round(data.revenue * 0.8),
+      isPaid: Boolean(payouts[month]),
     }))
     .sort((a, b) => b.month.localeCompare(a.month))
 

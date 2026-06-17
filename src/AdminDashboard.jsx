@@ -299,6 +299,19 @@ function Dashboard({ onLogout }) {
     }
   }, [])
 
+  const handleTogglePayout = async (month, currentStatus) => {
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/admin/payouts`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ month, isPaid: !currentStatus }),
+      })
+      if (res.ok) fetchAnalytics()
+    } catch (err) {
+      console.error('Failed to toggle payout', err)
+    }
+  }
+
   // Sync paper count from server on mount
   useEffect(() => {
     const fetchPaper = async () => {
@@ -491,16 +504,10 @@ function Dashboard({ onLogout }) {
                   <BarChart3 size={14} />
                   Breakdown Per Bulan
                 </p>
-                <h3>Riwayat Bulanan</h3>
+                <h3>Riwayat Tagihan Intechrest (20%)</h3>
 
                 {data.monthlyBreakdown.length === 0 ? (
-                  <div className="admin-empty">
-                    <div className="admin-empty-icon">
-                      <FileText size={28} />
-                    </div>
-                    <h4>Belum ada data</h4>
-                    <p>Data bulanan akan muncul setelah ada transaksi.</p>
-                  </div>
+                  <div className="admin-empty" style={{ padding: '20px' }}>Belum ada data bulanan.</div>
                 ) : (
                   <div style={{ marginTop: '14px' }}>
                     {data.monthlyBreakdown.map((m) => (
@@ -512,9 +519,15 @@ function Dashboard({ onLogout }) {
                             style={{ width: `${(m.revenue / maxMonthRevenue) * 100}%` }}
                           />
                         </div>
-                        <span className="admin-month-revenue">{formatCurrency(m.revenue)}</span>
-                        <span className="admin-month-intechrest">IT: {formatCurrency(m.intechrest)}</span>
-                        <span className="admin-month-orders">{m.orders} order</span>
+                        <span className="admin-month-intechrest">Tagihan: {formatCurrency(m.intechrest)}</span>
+                        <div className="admin-payout-action">
+                          <button
+                            className={`admin-payout-badge ${m.isPaid ? 'paid' : 'unpaid'}`}
+                            onClick={() => handleTogglePayout(m.month, m.isPaid)}
+                          >
+                            {m.isPaid ? '✓ Lunas' : 'Belum Lunas'}
+                          </button>
+                        </div>
                       </div>
                     ))}
                   </div>
