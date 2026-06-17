@@ -150,7 +150,14 @@ function App() {
       if (res.ok) {
         const data = await res.json()
         if (data.count < sheetCount) {
-          setError(`Kertas tidak cukup! Sisa kertas: ${data.count} lembar, Anda butuh ${sheetCount} lembar.`)
+          setError(
+            <>
+              Kertas tidak cukup! Sisa kertas: {data.count} lembar, Anda butuh {sheetCount} lembar.{' '}
+              <a href="https://wa.me/6281343524552" target="_blank" rel="noreferrer" style={{ textDecoration: 'underline', fontWeight: 'bold', color: 'inherit' }}>
+                Hubungi Admin (WA)
+              </a>
+            </>
+          )
           setIsProcessing(false)
           return
         }
