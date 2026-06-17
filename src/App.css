@@ -800,6 +800,78 @@
   border-bottom: 0;
 }
 
+/* ── Modal ──────────────────────────────────────────────────────────── */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(31, 26, 22, 0.5);
+  backdrop-filter: blur(8px);
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  animation: fadeIn 0.2s ease-out;
+}
+
+.modal-content {
+  background: linear-gradient(180deg, #ffffff, #fdf7f0);
+  border-radius: 32px;
+  padding: 36px;
+  width: min(420px, 100%);
+  text-align: center;
+  box-shadow: 0 40px 100px rgba(84, 57, 30, 0.2);
+  animation: slideUp 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+  border: 1px solid rgba(255, 255, 255, 0.8);
+}
+
+.modal-icon {
+  width: 84px;
+  height: 84px;
+  margin: 0 auto 20px;
+  border-radius: 50%;
+  background: rgba(188, 83, 43, 0.1);
+  color: var(--accent);
+  display: grid;
+  place-items: center;
+}
+
+.modal-content h3 {
+  font-family: var(--font-display);
+  font-size: 1.8rem;
+  margin: 0 0 12px;
+  letter-spacing: -0.03em;
+  color: var(--text);
+}
+
+.modal-content p {
+  color: var(--muted);
+  font-size: 1.05rem;
+  margin: 0 0 32px;
+  line-height: 1.5;
+}
+
+.modal-actions {
+  display: flex;
+  gap: 12px;
+  justify-content: center;
+}
+
+.modal-actions button,
+.modal-actions a {
+  flex: 1;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes slideUp {
+  from { opacity: 0; transform: translateY(20px) scale(0.95); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
 .status-panel {
   display: flex;
   gap: 14px;

@@ -72,12 +72,14 @@ function App() {
   const [step, setStep] = useState(0)
   const [file, setFile] = useState(null)
   const [rawFile, setRawFile] = useState(null)
+  const [error, setError] = useState(null)
+  const [paperError, setPaperError] = useState(false)
+  const [qrCodeData, setQrCodeData] = useState(null)
   const [printJobId, setPrintJobId] = useState(null)
   const [currentOrderId, setCurrentOrderId] = useState(null)
   const [config, setConfig] = useState(defaultConfig)
   const [isAnalyzing, setIsAnalyzing] = useState(false)
   const [isProcessing, setIsProcessing] = useState(false)
-  const [error, setError] = useState(null)
   const fileInputRef = useRef(null)
 
   // ─── File analysis ──────────────────────────────────────────────────────────
@@ -118,14 +120,7 @@ function App() {
         if (res.ok) {
           const data = await res.json()
           if (data.count < pages) {
-            setError(
-              <>
-                Kertas tidak cukup! Sisa kertas: {data.count} lembar, dokumen ini butuh {pages} halaman.{' '}
-                <a href="https://wa.me/6281343524552" target="_blank" rel="noreferrer" style={{ textDecoration: 'underline', fontWeight: 'bold', color: 'inherit' }}>
-                  Hubungi Admin (WA)
-                </a>
-              </>
-            )
+            setPaperError(true)
             setIsAnalyzing(false)
             return
           }
@@ -150,7 +145,7 @@ function App() {
   }
 
   const resetAll = () => {
-    setStep(0); setFile(null); setRawFile(null); setPrintJobId(null); setCurrentOrderId(null)
+    setStep(0); setFile(null); setRawFile(null); setPrintJobId(null); setCurrentOrderId(null); setPaperError(false)
     setConfig(defaultConfig); setIsAnalyzing(false); setIsProcessing(false); setError(null)
     if (fileInputRef.current) fileInputRef.current.value = ''
   }
@@ -633,6 +628,45 @@ function App() {
           </div>
         </aside>
       </div>
+
+      {/* ── Modal Kertas Habis ── */}
+      <AnimatePresence>
+        {paperError && (
+          <motion.div
+            className="modal-overlay"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+          >
+            <motion.div
+              className="modal-content"
+              initial={{ opacity: 0, y: 20, scale: 0.95 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: 20, scale: 0.95 }}
+            >
+              <div className="modal-icon">
+                <AlertCircle size={42} />
+              </div>
+              <h3>Pemberitahuan</h3>
+              <p>Tray Kertas Habis Ibu, Mohon Diisi ulang</p>
+              <div className="modal-actions">
+                <button type="button" className="secondary-button" onClick={() => setPaperError(false)}>
+                  Tutup
+                </button>
+                <a
+                  href="https://wa.me/6281343524552?text=Tray%20Kertas%20Habis%20Ibu%2C%20Mohon%20Diisi%20ulang"
+                  target="_blank"
+                  rel="noreferrer"
+                  className="primary-button"
+                  style={{ textDecoration: 'none' }}
+                >
+                  Hubungi Admin (WA)
+                </a>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   )
 }
