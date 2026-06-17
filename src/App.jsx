@@ -110,12 +110,35 @@ function App() {
     setError(null)
     setIsAnalyzing(true)
     try {
-      const pages = await analyzeFile(uploadedFile)
+      const pages = await analyzeFile(uploadedFile) || 1
+
+      // Cek stok kertas sebelum mengizinkan upload
+      try {
+        const res = await fetch(`${API_BASE_URL}/api/admin/paper`)
+        if (res.ok) {
+          const data = await res.json()
+          if (data.count < pages) {
+            setError(
+              <>
+                Kertas tidak cukup! Sisa kertas: {data.count} lembar, dokumen ini butuh {pages} halaman.{' '}
+                <a href="https://wa.me/6281343524552" target="_blank" rel="noreferrer" style={{ textDecoration: 'underline', fontWeight: 'bold', color: 'inherit' }}>
+                  Hubungi Admin (WA)
+                </a>
+              </>
+            )
+            setIsAnalyzing(false)
+            return
+          }
+        }
+      } catch (err) {
+        console.warn('Gagal cek kertas', err)
+      }
+
       setRawFile(uploadedFile)
       setFile({
         name: uploadedFile.name,
         size: (uploadedFile.size / 1024 / 1024).toFixed(2),
-        pages: pages || 1,
+        pages: pages,
         kind: getFileKind(uploadedFile.name),
       })
       setStep(1)
@@ -141,33 +164,6 @@ function App() {
   const totalPrice = file ? printCost : 0
   const currentStepTitle =
     step === 0 ? 'Upload Dokumen' : step === 1 ? 'Konfigurasi Cetak' : step === 2 ? 'Pembayaran' : 'Proses Print'
-
-  const proceedToPayment = async () => {
-    setIsProcessing(true)
-    setError(null)
-    try {
-      const res = await fetch(`${API_BASE_URL}/api/admin/paper`)
-      if (res.ok) {
-        const data = await res.json()
-        if (data.count < sheetCount) {
-          setError(
-            <>
-              Kertas tidak cukup! Sisa kertas: {data.count} lembar, Anda butuh {sheetCount} lembar.{' '}
-              <a href="https://wa.me/6281343524552" target="_blank" rel="noreferrer" style={{ textDecoration: 'underline', fontWeight: 'bold', color: 'inherit' }}>
-                Hubungi Admin (WA)
-              </a>
-            </>
-          )
-          setIsProcessing(false)
-          return
-        }
-      }
-    } catch (err) {
-      console.warn('Gagal cek kertas', err)
-    }
-    setIsProcessing(false)
-    setStep(2)
-  }
 
   // ─── Record transaction ke backend ──────────────────────────────────────────
   const recordTransaction = async (orderId, amount, items) => {
@@ -493,8 +489,8 @@ function App() {
 
                 <div className="stage-actions">
                   <button type="button" className="secondary-button" onClick={resetAll}>Ganti Dokumen</button>
-                  <button type="button" className="primary-button" onClick={proceedToPayment} disabled={isProcessing}>
-                    {isProcessing ? <><Loader2 size={16} className="spin-icon" /> Memproses...</> : <>Lanjut ke Pembayaran<ChevronRight size={18} /></>}
+                  <button type="button" className="primary-button" onClick={() => setStep(2)}>
+                    Lanjut ke Pembayaran<ChevronRight size={18} />
                   </button>
                 </div>
               </MotionSection>
