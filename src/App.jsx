@@ -32,7 +32,7 @@ const STEPS = [
   { label: 'Cetak', hint: 'Kirim ke printer' },
 ]
 
-const PRICE = { bw: 500, color: 2000, service: 1000 }
+const PRICE = { bw: 300, color: 500 }
 
 const defaultConfig = { copies: 1, color: false, duplex: false, paperSize: 'A4' }
 
@@ -138,10 +138,29 @@ function App() {
   const sheetCount = file ? Math.ceil(file.pages / (config.duplex ? 2 : 1)) * config.copies : 0
   const pageRate = config.color ? PRICE.color : PRICE.bw
   const printCost = file ? file.pages * config.copies * pageRate : 0
-  const serviceCost = PRICE.service
-  const totalPrice = file ? printCost + serviceCost : 0
+  const totalPrice = file ? printCost : 0
   const currentStepTitle =
     step === 0 ? 'Upload Dokumen' : step === 1 ? 'Konfigurasi Cetak' : step === 2 ? 'Pembayaran' : 'Proses Print'
+
+  const proceedToPayment = async () => {
+    setIsProcessing(true)
+    setError(null)
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/admin/paper`)
+      if (res.ok) {
+        const data = await res.json()
+        if (data.count < sheetCount) {
+          setError(`Kertas tidak cukup! Sisa kertas: ${data.count} lembar, Anda butuh ${sheetCount} lembar.`)
+          setIsProcessing(false)
+          return
+        }
+      }
+    } catch (err) {
+      console.warn('Gagal cek kertas', err)
+    }
+    setIsProcessing(false)
+    setStep(2)
+  }
 
   // ─── Record transaction ke backend ──────────────────────────────────────────
   const recordTransaction = async (orderId, amount, items) => {
@@ -186,6 +205,7 @@ function App() {
         duplex: config.duplex,
         paperSize: config.paperSize,
         color: config.color,
+        totalSheets: sheetCount,
       }),
     })
     const data = await response.json()
@@ -244,6 +264,7 @@ function App() {
           amount: totalPrice,
           order_id: orderId,
           items: [{ id: 'PRINT-JOB', price: totalPrice, quantity: 1, name: `Print: ${file.name}` }],
+          totalSheets: sheetCount,
         }),
       })
       const txData = await txRes.json()
@@ -405,6 +426,12 @@ function App() {
                   </button>
                 </div>
 
+                {error && (
+                  <div className="alert-box" role="alert" style={{ margin: '16px 0' }}>
+                    <AlertCircle size={18} /><span>{error}</span>
+                  </div>
+                )}
+
                 <div className="config-grid">
                   <section className="control-group">
                     <div className="control-heading">
@@ -425,10 +452,10 @@ function App() {
                     </div>
                     <div className="option-grid">
                       <button type="button" className={`option-card ${!config.color ? 'selected' : ''}`} onClick={() => updateConfig('color', false)}>
-                        <strong>Hitam Putih</strong><span>Rp 500 / halaman</span>
+                        <strong>Hitam Putih</strong><span>Rp 300 / halaman</span>
                       </button>
                       <button type="button" className={`option-card ${config.color ? 'selected' : ''}`} onClick={() => updateConfig('color', true)}>
-                        <strong>Full Color</strong><span>Rp 2.000 / halaman</span>
+                        <strong>Full Color</strong><span>Rp 500 / halaman</span>
                       </button>
                     </div>
                   </section>
@@ -459,8 +486,8 @@ function App() {
 
                 <div className="stage-actions">
                   <button type="button" className="secondary-button" onClick={resetAll}>Ganti Dokumen</button>
-                  <button type="button" className="primary-button" onClick={() => setStep(2)}>
-                    Lanjut ke Pembayaran<ChevronRight size={18} />
+                  <button type="button" className="primary-button" onClick={proceedToPayment} disabled={isProcessing}>
+                    {isProcessing ? <><Loader2 size={16} className="spin-icon" /> Memproses...</> : <>Lanjut ke Pembayaran<ChevronRight size={18} /></>}
                   </button>
                 </div>
               </MotionSection>
@@ -579,7 +606,6 @@ function App() {
           </div>
           <div className="cost-panel">
             <div><span>Biaya cetak</span><strong>{formatCurrency(printCost)}</strong></div>
-            <div><span>Biaya layanan</span><strong>{formatCurrency(serviceCost)}</strong></div>
             <div><span>Metode bayar</span><strong>QRIS / Snap</strong></div>
           </div>
 

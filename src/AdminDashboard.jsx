@@ -7,16 +7,26 @@ import {
   Clock,
   CreditCard,
   FileText,
+  Layers,
   Loader2,
+  Lock,
+  LogOut,
   Package,
+  Printer,
   RefreshCw,
+  Settings,
   TrendingUp,
+  User,
   Wallet,
 } from 'lucide-react'
 import './AdminDashboard.css'
 
 const API_BASE_URL = ''
 const REFRESH_INTERVAL = 30000 // 30 detik
+
+const ADMIN_USER = 'rukkamu'
+const ADMIN_PASS = 'hidupjokowi'
+const SESSION_KEY = 'rk_admin_session'
 
 function formatCurrency(value) {
   return new Intl.NumberFormat('id-ID', {
@@ -43,11 +53,235 @@ function formatMonthLabel(monthKey) {
   return d.toLocaleDateString('id-ID', { month: 'long', year: 'numeric' })
 }
 
-function AdminDashboard() {
+// ── Login Screen ─────────────────────────────────────────────────────────────
+function LoginScreen({ onLogin }) {
+  const [username, setUsername] = useState('')
+  const [password, setPassword] = useState('')
+  const [error, setError] = useState('')
+  const [loading, setLoading] = useState(false)
+  const [showPass, setShowPass] = useState(false)
+
+  const handleSubmit = (e) => {
+    e.preventDefault()
+    setLoading(true)
+    setError('')
+    setTimeout(() => {
+      if (username === ADMIN_USER && password === ADMIN_PASS) {
+        sessionStorage.setItem(SESSION_KEY, '1')
+        onLogin()
+      } else {
+        setError('Username atau password salah.')
+      }
+      setLoading(false)
+    }, 700)
+  }
+
+  return (
+    <div className="admin-shell login-shell">
+      <div className="admin-ambient-left" aria-hidden="true" />
+      <div className="admin-ambient-right" aria-hidden="true" />
+
+      <div className="login-center">
+        <div className="login-card">
+          <div className="login-brand">
+            <div className="admin-brand-badge-lg">R</div>
+            <div>
+              <p className="login-overline">Rukkamu Self Printing</p>
+              <h1 className="login-title">Admin Panel</h1>
+            </div>
+          </div>
+
+          <p className="login-subtitle">
+            Masuk untuk mengelola dashboard, transaksi, dan stok kertas printer.
+          </p>
+
+          <form onSubmit={handleSubmit} className="login-form">
+            <div className="login-field">
+              <label htmlFor="admin-username">
+                <User size={14} /> Username
+              </label>
+              <input
+                id="admin-username"
+                type="text"
+                autoComplete="username"
+                placeholder="Masukkan username"
+                value={username}
+                onChange={(e) => setUsername(e.target.value)}
+                required
+              />
+            </div>
+
+            <div className="login-field">
+              <label htmlFor="admin-password">
+                <Lock size={14} /> Password
+              </label>
+              <div className="login-pass-row">
+                <input
+                  id="admin-password"
+                  type={showPass ? 'text' : 'password'}
+                  autoComplete="current-password"
+                  placeholder="Masukkan password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  required
+                />
+                <button
+                  type="button"
+                  className="show-pass-btn"
+                  onClick={() => setShowPass((v) => !v)}
+                  tabIndex={-1}
+                  aria-label="Toggle tampilkan password"
+                >
+                  {showPass ? '🙈' : '👁'}
+                </button>
+              </div>
+            </div>
+
+            {error && (
+              <div className="login-error" role="alert">
+                ⚠️ {error}
+              </div>
+            )}
+
+            <button type="submit" className="login-submit-btn" disabled={loading}>
+              {loading ? (
+                <>
+                  <Loader2 size={16} className="spin-icon-admin" /> Memverifikasi...
+                </>
+              ) : (
+                <>
+                  <Lock size={16} /> Masuk ke Dashboard
+                </>
+              )}
+            </button>
+          </form>
+
+          <p className="login-footer">
+            Akses terbatas untuk admin Rukkamu
+          </p>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ── Paper Manager ─────────────────────────────────────────────────────────────
+function PaperManager({ paperCount, onUpdate }) {
+  const [editValue, setEditValue] = useState(String(paperCount))
+  const [saving, setSaving] = useState(false)
+  const [saved, setSaved] = useState(false)
+
+  useEffect(() => {
+    setEditValue(String(paperCount))
+  }, [paperCount])
+
+  const handleSave = async () => {
+    const val = parseInt(editValue, 10)
+    if (isNaN(val) || val < 0) return
+    setSaving(true)
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/admin/paper`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ count: val }),
+      })
+      if (res.ok) {
+        onUpdate(val)
+        setSaved(true)
+        setTimeout(() => setSaved(false), 2000)
+      }
+    } catch {
+      // fallback: update local only
+      onUpdate(val)
+      setSaved(true)
+      setTimeout(() => setSaved(false), 2000)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const pct = Math.min(100, Math.round((paperCount / 500) * 100))
+  const barColor =
+    paperCount <= 20
+      ? 'var(--admin-red)'
+      : paperCount <= 50
+      ? 'var(--admin-accent)'
+      : 'var(--admin-green)'
+
+  return (
+    <div className="paper-manager-card admin-animate-in">
+      <p className="admin-section-tag">
+        <Layers size={14} /> Manajemen Kertas Tray
+      </p>
+      <h3>Stok Kertas</h3>
+
+      <div className="paper-count-display">
+        <div className="paper-count-num" style={{ color: barColor }}>
+          {paperCount}
+        </div>
+        <span className="paper-count-label">lembar tersisa</span>
+      </div>
+
+      <div className="paper-bar-track">
+        <div
+          className="paper-bar-fill"
+          style={{ width: `${pct}%`, background: barColor }}
+        />
+      </div>
+      <p className="paper-bar-hint">
+        {pct}% kapasitas tray (maks 500 lembar)
+      </p>
+
+      {paperCount <= 20 && (
+        <div className="paper-alert" role="alert">
+          ⚠️ <strong>Kertas hampir habis!</strong> Sisa {paperCount} lembar — segera isi ulang tray.
+        </div>
+      )}
+
+      <div className="paper-set-row">
+        <label htmlFor="paper-input">Set jumlah kertas saat ini:</label>
+        <div className="paper-input-group">
+          <input
+            id="paper-input"
+            type="number"
+            min="0"
+            max="9999"
+            value={editValue}
+            onChange={(e) => setEditValue(e.target.value)}
+            className="paper-input"
+          />
+          <button
+            type="button"
+            className="admin-btn admin-btn-primary"
+            onClick={handleSave}
+            disabled={saving}
+          >
+            {saving ? (
+              <Loader2 size={14} className="spin-icon-admin" />
+            ) : saved ? (
+              '✓ Tersimpan'
+            ) : (
+              <>
+                <Settings size={14} /> Simpan
+              </>
+            )}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ── Main Dashboard ────────────────────────────────────────────────────────────
+function Dashboard({ onLogout }) {
   const [data, setData] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
   const [lastRefresh, setLastRefresh] = useState(null)
+  const [paperCount, setPaperCount] = useState(() => {
+    const stored = localStorage.getItem('rk_paper_count')
+    return stored !== null ? parseInt(stored, 10) : 500
+  })
 
   const fetchAnalytics = useCallback(async (showLoading = false) => {
     if (showLoading) setLoading(true)
@@ -65,23 +299,49 @@ function AdminDashboard() {
     }
   }, [])
 
+  // Sync paper count from server on mount
+  useEffect(() => {
+    const fetchPaper = async () => {
+      try {
+        const res = await fetch(`${API_BASE_URL}/api/admin/paper`)
+        if (res.ok) {
+          const j = await res.json()
+          if (typeof j.count === 'number') {
+            setPaperCount(j.count)
+            localStorage.setItem('rk_paper_count', String(j.count))
+          }
+        }
+      } catch {
+        // use local storage value
+      }
+    }
+    fetchPaper()
+  }, [])
+
   useEffect(() => {
     fetchAnalytics(true)
     const interval = setInterval(() => fetchAnalytics(false), REFRESH_INTERVAL)
     return () => clearInterval(interval)
   }, [fetchAnalytics])
 
+  const handlePaperUpdate = (val) => {
+    setPaperCount(val)
+    localStorage.setItem('rk_paper_count', String(val))
+  }
+
   const goToKiosk = () => {
     window.location.hash = ''
   }
 
-  // Max revenue across months for bar scaling
   const maxMonthRevenue = data?.monthlyBreakdown?.length
     ? Math.max(...data.monthlyBreakdown.map((m) => m.revenue))
     : 1
 
   return (
     <div className="admin-shell">
+      <div className="admin-ambient-left" aria-hidden="true" />
+      <div className="admin-ambient-right" aria-hidden="true" />
+
       <div className="admin-container">
         {/* ── Header ──────────────────────────────────────── */}
         <header className="admin-header">
@@ -104,6 +364,10 @@ function AdminDashboard() {
             <button type="button" className="admin-btn" onClick={goToKiosk}>
               <ArrowLeft size={15} />
               Kiosk
+            </button>
+            <button type="button" className="admin-btn admin-btn-logout" onClick={onLogout}>
+              <LogOut size={15} />
+              Keluar
             </button>
           </div>
         </header>
@@ -173,8 +437,12 @@ function AdminDashboard() {
               </div>
             </div>
 
-            {/* Revenue Split Panel */}
-            <div className="admin-split-grid">
+            {/* Paper Manager + Revenue Split */}
+            <div className="admin-split-grid admin-split-grid-3">
+              {/* Paper Manager */}
+              <PaperManager paperCount={paperCount} onUpdate={handlePaperUpdate} />
+
+              {/* Revenue Split */}
               <div className="admin-split-card admin-animate-in">
                 <p className="admin-section-tag">
                   <Wallet size={14} />
@@ -318,6 +586,22 @@ function AdminDashboard() {
       </div>
     </div>
   )
+}
+
+// ── Root ─────────────────────────────────────────────────────────────────────
+function AdminDashboard() {
+  const [loggedIn, setLoggedIn] = useState(() => sessionStorage.getItem(SESSION_KEY) === '1')
+
+  const handleLogout = () => {
+    sessionStorage.removeItem(SESSION_KEY)
+    setLoggedIn(false)
+  }
+
+  if (!loggedIn) {
+    return <LoginScreen onLogin={() => setLoggedIn(true)} />
+  }
+
+  return <Dashboard onLogout={handleLogout} />
 }
 
 export default AdminDashboard

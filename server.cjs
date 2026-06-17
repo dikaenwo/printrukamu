@@ -54,6 +54,26 @@ function saveTransaction(tx) {
   console.log(`[TX] Recorded: ${tx.order_id} — Rp ${tx.amount}`)
 }
 
+// ─── Paper Store (JSON file) ──────────────────────────────────────────────────
+const PAPER_FILE = path.join(__dirname, 'paper.json')
+
+function loadPaperCount() {
+  try {
+    if (!fs.existsSync(PAPER_FILE)) { fs.writeFileSync(PAPER_FILE, '{"count": 500}', 'utf8') }
+    const raw = fs.readFileSync(PAPER_FILE, 'utf8')
+    const parsed = JSON.parse(raw)
+    return typeof parsed.count === 'number' ? parsed.count : 500
+  } catch {
+    return 500
+  }
+}
+
+function savePaperCount(count) {
+  const safeCount = Math.max(0, count)
+  fs.writeFileSync(PAPER_FILE, JSON.stringify({ count: safeCount }), 'utf8')
+  return safeCount
+}
+
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 function truncateItemName(name = '', maxLength = 50) {
   return name.length <= maxLength ? name : `${name.slice(0, maxLength - 3)}...`
@@ -109,9 +129,17 @@ app.get('/api/config', (_req, res) => {
 })
 
 app.post('/api/create-checkout-transaction', async (req, res) => {
-  const { amount, order_id, items, customer_details } = req.body || {}
+  const { amount, order_id, items, customer_details, totalSheets } = req.body || {}
   const grossAmount = Number(amount) || 0
   if (!grossAmount || !order_id) return res.status(400).json({ error: 'amount dan order_id wajib diisi.' })
+
+  // Pengecekan sisa kertas
+  if (totalSheets) {
+    const currentPaper = loadPaperCount()
+    if (currentPaper < totalSheets) {
+      return res.status(400).json({ error: `Kertas di printer tidak cukup. Sisa: ${currentPaper} lembar, Butuh: ${totalSheets} lembar. Silakan hubungi admin.` })
+    }
+  }
 
   try {
     const transaction = await snap.createTransaction({
@@ -141,9 +169,14 @@ app.get('/api/transaction-status/:orderId', async (req, res) => {
 
 // Print endpoint — menerima file sebagai base64 JSON (lebih reliable dari multipart)
 app.post('/api/print', (req, res) => {
-  const { filename, data, copies = 1, duplex = false, paperSize = 'A4', color = false } = req.body || {}
+  const { filename, data, copies = 1, duplex = false, paperSize = 'A4', color = false, totalSheets = 1 } = req.body || {}
 
   if (!data) return res.status(400).json({ error: 'Tidak ada data file yang dikirim.' })
+
+  const currentPaper = loadPaperCount()
+  if (currentPaper < totalSheets) {
+    return res.status(400).json({ error: `Kertas tidak cukup. Sisa kertas: ${currentPaper} lembar. Dibutuhkan: ${totalSheets} lembar.` })
+  }
 
   const ext = path.extname(filename || 'document.pdf').toLowerCase() || '.pdf'
   const tempPath = path.join(os.tmpdir(), `print-${Date.now()}${ext}`)
@@ -173,6 +206,10 @@ app.post('/api/print', (req, res) => {
         console.error('[PRINT] Error:', stderr || error.message)
         return res.status(500).json({ error: `Gagal mencetak: ${stderr?.trim() || error.message}` })
       }
+
+      // Kurangi jumlah kertas
+      savePaperCount(currentPaper - totalSheets)
+
       const jobId = (stdout.match(/request id is (\S+)/) || [])[1] || 'unknown'
       console.log('[PRINT] Job:', stdout.trim())
       return res.json({ ok: true, jobId, message: stdout.trim() })
@@ -247,7 +284,21 @@ app.post('/api/midtrans-notification', async (req, res) => {
   }
 })
 
-// ─── Admin Analytics API ─────────────────────────────────────────────────────
+// ─── Admin Analytics & Paper API ─────────────────────────────────────────────
+app.get('/api/admin/paper', (_req, res) => {
+  res.json({ count: loadPaperCount() })
+})
+
+app.post('/api/admin/paper', (req, res) => {
+  const { count } = req.body || {}
+  if (typeof count === 'number') {
+    const newCount = savePaperCount(count)
+    res.json({ count: newCount })
+  } else {
+    res.status(400).json({ error: 'count harus berupa angka' })
+  }
+})
+
 app.get('/api/admin/analytics', (_req, res) => {
   const transactions = loadTransactions()
   const now = new Date()
