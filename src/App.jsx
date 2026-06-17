@@ -648,7 +648,7 @@ function App() {
                 <AlertCircle size={42} />
               </div>
               <h3>Pemberitahuan</h3>
-              <p>Tray Kertas Habis Ibu, Mohon Diisi ulang</p>
+              <p>Kontak Admin Wa Sekarang</p>
               <div className="modal-actions">
                 <button type="button" className="secondary-button" onClick={() => setPaperError(false)}>
                   Tutup
