@@ -25,3 +25,10 @@ dist-ssr
 
 .env
 transactions.json
+paper.json
+payouts.json
+
+# WhatsApp Bot session
+wa-session/
+.wwebjs_auth/
+.wwebjs_cache/
