@@ -74,6 +74,49 @@ function savePaperCount(count) {
   return safeCount
 }
 
+// ─── WhatsApp Notification (kertas habis) ─────────────────────────────────────
+const WA_NOTIFY_URL = process.env.WA_NOTIFY_URL || ''       // URL endpoint WA bot di VPS kamu
+const WA_NOTIFY_PHONE = process.env.WA_NOTIFY_PHONE || ''   // Nomor tujuan notif (format: 6281343524552)
+const WA_NOTIFY_THRESHOLD = parseInt(process.env.WA_NOTIFY_THRESHOLD || '10', 10)  // Kirim notif kalau sisa ≤ ini
+let lastNotifTime = 0  // Cooldown agar tidak spam
+const NOTIF_COOLDOWN = 5 * 60 * 1000  // 5 menit
+
+async function sendPaperAlert(currentCount) {
+  if (!WA_NOTIFY_URL || !WA_NOTIFY_PHONE) {
+    console.log('[WA-NOTIF] Skipped — WA_NOTIFY_URL atau WA_NOTIFY_PHONE belum diset di .env')
+    return
+  }
+  if (currentCount > WA_NOTIFY_THRESHOLD) return
+  if (Date.now() - lastNotifTime < NOTIF_COOLDOWN) {
+    console.log('[WA-NOTIF] Skipped — cooldown aktif (5 menit)')
+    return
+  }
+
+  const message = currentCount <= 0
+    ? `🚨 *KERTAS HABIS!*\n\nKertas di printer Rukkamu sudah habis (0 lembar). Segera isi ulang tray printer.\n\n_Pesan otomatis dari Rukkamu Print System_`
+    : `⚠️ *Kertas Hampir Habis*\n\nSisa kertas di printer Rukkamu tinggal *${currentCount} lembar*. Mohon segera isi ulang tray printer.\n\n_Pesan otomatis dari Rukkamu Print System_`
+
+  try {
+    const response = await fetch(WA_NOTIFY_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        phone: WA_NOTIFY_PHONE,
+        message: message,
+        // Field umum untuk berbagai WA bot API:
+        number: WA_NOTIFY_PHONE,
+        text: message,
+        to: WA_NOTIFY_PHONE,
+        body: message,
+      }),
+    })
+    lastNotifTime = Date.now()
+    console.log(`[WA-NOTIF] ✅ Notifikasi terkirim ke ${WA_NOTIFY_PHONE} (sisa: ${currentCount} lembar) — status: ${response.status}`)
+  } catch (err) {
+    console.error(`[WA-NOTIF] ❌ Gagal kirim notifikasi:`, err.message)
+  }
+}
+
 // ─── Payout Store (JSON file) ─────────────────────────────────────────────────
 const PAYOUTS_FILE = path.join(__dirname, 'payouts.json')
 
@@ -228,7 +271,10 @@ app.post('/api/print', (req, res) => {
       }
 
       // Kurangi jumlah kertas
-      savePaperCount(currentPaper - totalSheets)
+      const newPaperCount = savePaperCount(currentPaper - totalSheets)
+
+      // Kirim notif WA kalau kertas hampir habis / habis
+      sendPaperAlert(newPaperCount)
 
       const jobId = (stdout.match(/request id is (\S+)/) || [])[1] || 'unknown'
       console.log('[PRINT] Job:', stdout.trim())
