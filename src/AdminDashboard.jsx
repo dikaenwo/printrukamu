@@ -172,7 +172,11 @@ function PaperManager({ paperCount, onUpdate }) {
   const [saved, setSaved] = useState(false)
 
   useEffect(() => {
-    setEditValue(String(paperCount))
+    // Hindari set state langsung di body effect tanpa kondisi, 
+    // ini memicu React error di StrictMode.
+    if (String(paperCount) !== editValue) {
+      setEditValue(String(paperCount))
+    }
   }, [paperCount])
 
   const handleSave = async () => {
@@ -332,7 +336,12 @@ function Dashboard({ onLogout }) {
   }, [])
 
   useEffect(() => {
-    fetchAnalytics(true)
+    // Panggil dalam async function terpisah agar tidak trigger cascading render di strict mode
+    const loadData = async () => {
+      await fetchAnalytics(true)
+    }
+    loadData()
+    
     const interval = setInterval(() => fetchAnalytics(false), REFRESH_INTERVAL)
     return () => clearInterval(interval)
   }, [fetchAnalytics])

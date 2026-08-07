@@ -352,7 +352,9 @@ app.post('/api/midtrans-notification', async (req, res) => {
 
 // ─── Admin Analytics & Paper API ─────────────────────────────────────────────
 app.get('/api/admin/paper', (_req, res) => {
-  res.json({ count: loadPaperCount() })
+  const currentCount = loadPaperCount()
+  sendPaperAlert(currentCount) // Trigger notif kalau kertas rendah saat dicek
+  res.json({ count: currentCount })
 })
 
 app.post('/api/admin/paper', (req, res) => {
