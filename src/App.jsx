@@ -340,31 +340,76 @@ function App() {
       // 3. Muat Snap.js lalu buka popup
       await loadSnapScript(clientKey, isProduction)
 
+      // 4. Auto-polling: cek status pembayaran setiap 3 detik
+      //    Begitu lunas → langsung print tanpa user klik "Check status"
+      let alreadyHandled = false
+      const pollInterval = setInterval(async () => {
+        if (alreadyHandled) return
+        try {
+          const res = await fetch(`${API_BASE_URL}/api/transaction-status/${orderId}`)
+          const data = await res.json()
+          if (['settlement', 'capture'].includes(data.transaction_status)) {
+            alreadyHandled = true
+            clearInterval(pollInterval)
+            // Tutup popup Midtrans jika masih terbuka
+            try { window.snap.hide() } catch {}
+            const names = files.map((f) => f.name).join(', ')
+            await recordTransaction(orderId, totalPrice, [{ id: 'PRINT-JOB', price: totalPrice, quantity: 1, name: `Print: ${names}` }])
+            try {
+              await sendPrintJob()
+            } catch (e) {
+              setError(`Pembayaran berhasil tapi print gagal: ${e.message}`)
+            }
+          }
+        } catch {
+          // Gagal polling — abaikan, coba lagi di interval berikutnya
+        }
+      }, 3000)
+
       window.snap.pay(txData.token, {
         onSuccess: async () => {
-          // Pembayaran selesai di dalam popup — record + print
-          const fileNames = files.map((f) => f.name).join(', ')
-          await recordTransaction(orderId, totalPrice, [{ id: 'PRINT-JOB', price: totalPrice, quantity: 1, name: `Print: ${fileNames}` }])
+          if (alreadyHandled) return
+          alreadyHandled = true
+          clearInterval(pollInterval)
+          const names = files.map((f) => f.name).join(', ')
+          await recordTransaction(orderId, totalPrice, [{ id: 'PRINT-JOB', price: totalPrice, quantity: 1, name: `Print: ${names}` }])
           try { await sendPrintJob() } catch (e) {
             setError(`Pembayaran berhasil tapi print gagal: ${e.message}`)
           }
         },
         onPending: async () => {
-          // Mungkin sudah dibayar via simulator eksternal
+          // Polling tetap jalan di background — tidak perlu manual check
+          // Tapi fallback: cek sekali lagi
+          if (alreadyHandled) return
           const paid = await checkAndPrint(orderId)
-          if (!paid) {
-            setError('Pembayaran pending. Klik "Saya Sudah Bayar" jika sudah menyelesaikan pembayaran.')
-            setIsProcessing(false)
+          if (paid) {
+            alreadyHandled = true
+            clearInterval(pollInterval)
           }
+          // Polling tetap aktif kalau belum lunas
         },
         onError: () => {
+          clearInterval(pollInterval)
+          if (alreadyHandled) return
           setError('Pembayaran gagal. Silakan coba lagi.')
           setIsProcessing(false)
         },
         onClose: async () => {
-          // User tutup popup — cek dulu ke Midtrans, mungkin sudah bayar via tab lain
+          // User tutup popup — polling tetap jalan 30 detik lagi untuk jaga-jaga
+          if (alreadyHandled) return
           const paid = await checkAndPrint(orderId)
-          if (!paid) setIsProcessing(false)
+          if (paid) {
+            alreadyHandled = true
+            clearInterval(pollInterval)
+          } else {
+            // Beri waktu 30 detik lagi untuk polling, lalu stop
+            setTimeout(() => {
+              if (!alreadyHandled) {
+                clearInterval(pollInterval)
+                setIsProcessing(false)
+              }
+            }, 30000)
+          }
         },
       })
     } catch (err) {
