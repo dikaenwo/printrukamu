@@ -70,16 +70,16 @@ function loadSnapScript(key, isProd) {
 
 function App() {
   const [step, setStep] = useState(0)
-  const [file, setFile] = useState(null)
-  const [rawFile, setRawFile] = useState(null)
+  const [files, setFiles] = useState([])          // array of { name, size, pages, kind }
+  const [rawFiles, setRawFiles] = useState([])    // array of raw File objects
   const [error, setError] = useState(null)
   const [paperError, setPaperError] = useState(false)
-  const [qrCodeData, setQrCodeData] = useState(null)
   const [printJobId, setPrintJobId] = useState(null)
   const [currentOrderId, setCurrentOrderId] = useState(null)
   const [config, setConfig] = useState(defaultConfig)
   const [isAnalyzing, setIsAnalyzing] = useState(false)
   const [isProcessing, setIsProcessing] = useState(false)
+  const [isDragging, setIsDragging] = useState(false)
   const fileInputRef = useRef(null)
 
   // ─── File analysis ──────────────────────────────────────────────────────────
@@ -106,20 +106,37 @@ function App() {
     }
   }
 
-  const handleFileUpload = async (event) => {
-    const uploadedFile = event.target.files?.[0]
-    if (!uploadedFile) return
+  const ACCEPTED_EXTS = /\.(pdf|doc|docx|png|jpg|jpeg|webp)$/i
+
+  const processFileList = async (fileList) => {
+    const accepted = Array.from(fileList).filter((f) => ACCEPTED_EXTS.test(f.name))
+    if (!accepted.length) {
+      setError('Format file tidak didukung. Gunakan PDF, DOC, DOCX, JPG, PNG, atau WEBP.')
+      return
+    }
     setError(null)
     setIsAnalyzing(true)
     try {
-      const pages = await analyzeFile(uploadedFile) || 1
+      const analyzed = await Promise.all(
+        accepted.map(async (f) => ({
+          raw: f,
+          meta: {
+            name: f.name,
+            size: (f.size / 1024 / 1024).toFixed(2),
+            pages: (await analyzeFile(f)) || 1,
+            kind: getFileKind(f.name),
+          },
+        }))
+      )
 
-      // Cek stok kertas sebelum mengizinkan upload
+      const totalPages = analyzed.reduce((s, a) => s + a.meta.pages, 0)
+
+      // Cek stok kertas
       try {
         const res = await fetch(`${API_BASE_URL}/api/admin/paper`)
         if (res.ok) {
           const data = await res.json()
-          if (data.count < pages) {
+          if (data.count < totalPages) {
             setPaperError(true)
             setIsAnalyzing(false)
             return
@@ -129,23 +146,41 @@ function App() {
         console.warn('Gagal cek kertas', err)
       }
 
-      setRawFile(uploadedFile)
-      setFile({
-        name: uploadedFile.name,
-        size: (uploadedFile.size / 1024 / 1024).toFixed(2),
-        pages: pages,
-        kind: getFileKind(uploadedFile.name),
-      })
-      setStep(1)
+      setRawFiles((prev) => [...prev, ...analyzed.map((a) => a.raw)])
+      setFiles((prev) => [...prev, ...analyzed.map((a) => a.meta)])
+      if (step === 0) setStep(1)
     } catch {
-      setError('Gagal membaca dokumen. Coba file lain atau unggah ulang.')
+      setError('Gagal membaca satu atau lebih dokumen. Coba file lain atau unggah ulang.')
     } finally {
       setIsAnalyzing(false)
+      if (fileInputRef.current) fileInputRef.current.value = ''
     }
   }
 
+  const handleFileUpload = (event) => {
+    if (event.target.files?.length) processFileList(event.target.files)
+  }
+
+  const handleDrop = (e) => {
+    e.preventDefault()
+    setIsDragging(false)
+    if (e.dataTransfer.files?.length) processFileList(e.dataTransfer.files)
+  }
+
+  const handleDragOver = (e) => {
+    e.preventDefault()
+    setIsDragging(true)
+  }
+
+  const handleDragLeave = () => setIsDragging(false)
+
+  const removeFile = (index) => {
+    setFiles((prev) => prev.filter((_, i) => i !== index))
+    setRawFiles((prev) => prev.filter((_, i) => i !== index))
+  }
+
   const resetAll = () => {
-    setStep(0); setFile(null); setRawFile(null); setPrintJobId(null); setCurrentOrderId(null); setPaperError(false)
+    setStep(0); setFiles([]); setRawFiles([]); setPrintJobId(null); setCurrentOrderId(null); setPaperError(false)
     setConfig(defaultConfig); setIsAnalyzing(false); setIsProcessing(false); setError(null)
     if (fileInputRef.current) fileInputRef.current.value = ''
   }
@@ -153,14 +188,17 @@ function App() {
   const updateConfig = (key, value) => setConfig((c) => ({ ...c, [key]: value }))
 
   // ─── Kalkulasi harga ────────────────────────────────────────────────────────
-  const sheetCount = file ? Math.ceil(file.pages / (config.duplex ? 2 : 1)) * config.copies : 0
+  const totalPages = files.reduce((s, f) => s + f.pages, 0)
+  const totalSizeMB = files.reduce((s, f) => s + parseFloat(f.size), 0).toFixed(2)
+  const sheetCount = files.length ? Math.ceil(totalPages / (config.duplex ? 2 : 1)) * config.copies : 0
   const pageRate = config.color ? PRICE.color : PRICE.bw
-  const printCost = file ? file.pages * config.copies * pageRate : 0
-  const totalPrice = file ? printCost : 0
+  const printCost = files.length ? totalPages * config.copies * pageRate : 0
+  const totalPrice = files.length ? printCost : 0
   const currentStepTitle =
     step === 0 ? 'Upload Dokumen' : step === 1 ? 'Konfigurasi Cetak' : step === 2 ? 'Pembayaran' : 'Proses Print'
 
   const proceedToPayment = async () => {
+    if (!files.length) return
     setIsProcessing(true)
     try {
       const res = await fetch(`${API_BASE_URL}/api/admin/paper`)
@@ -198,36 +236,46 @@ function App() {
   }
 
   // ─── Upload file & cetak (dipanggil setelah bayar) ──────────────────────────
-  const sendPrintJob = async () => {
-    if (!rawFile || !file) return
-
-    // Baca file sebagai base64 — lebih reliable dari FormData lewat proxy
+  const encodeBase64 = async (rawFile) => {
     const arrayBuffer = await rawFile.arrayBuffer()
-    // Gunakan chunk agar tidak overflow call stack untuk file besar (gambar, dll)
     const uint8 = new Uint8Array(arrayBuffer)
     let binary = ''
     const CHUNK = 8192
     for (let i = 0; i < uint8.length; i += CHUNK) {
       binary += String.fromCharCode(...uint8.subarray(i, i + CHUNK))
     }
-    const base64 = btoa(binary)
+    return btoa(binary)
+  }
 
-    const response = await fetch(`${API_BASE_URL}/api/print`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        filename: file.name,
-        data: base64,
-        copies: config.copies,
-        duplex: config.duplex,
-        paperSize: config.paperSize,
-        color: config.color,
-        totalSheets: sheetCount,
-      }),
-    })
-    const data = await response.json()
-    if (!response.ok) throw new Error(data.error || 'Gagal mengirim ke printer.')
-    setPrintJobId(data.jobId || 'unknown')
+  const sendPrintJob = async () => {
+    if (!rawFiles.length || !files.length) return
+
+    let lastJobId = 'unknown'
+    // Kirim setiap file satu per satu secara berurutan
+    for (let i = 0; i < rawFiles.length; i++) {
+      const rawFile = rawFiles[i]
+      const fileMeta = files[i]
+      const base64 = await encodeBase64(rawFile)
+
+      const response = await fetch(`${API_BASE_URL}/api/print`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          filename: fileMeta.name,
+          data: base64,
+          copies: config.copies,
+          duplex: config.duplex,
+          paperSize: config.paperSize,
+          color: config.color,
+          totalSheets: Math.ceil(fileMeta.pages / (config.duplex ? 2 : 1)) * config.copies,
+        }),
+      })
+      const data = await response.json()
+      if (!response.ok) throw new Error(data.error || `Gagal mengirim file ke-${i + 1} ke printer.`)
+      lastJobId = data.jobId || 'unknown'
+    }
+
+    setPrintJobId(lastJobId)
     setStep(3)
   }
 
@@ -237,7 +285,8 @@ function App() {
       const res = await fetch(`${API_BASE_URL}/api/transaction-status/${orderId}`)
       const data = await res.json()
       if (['settlement', 'capture'].includes(data.transaction_status)) {
-        await recordTransaction(orderId, totalPrice, [{ id: 'PRINT-JOB', price: totalPrice, quantity: 1, name: `Print: ${file?.name || 'document'}` }])
+        const fileNames = files.map((f) => f.name).join(', ')
+        await recordTransaction(orderId, totalPrice, [{ id: 'PRINT-JOB', price: totalPrice, quantity: 1, name: `Print: ${fileNames || 'document'}` }])
         await sendPrintJob()
         return true
       }
@@ -261,7 +310,7 @@ function App() {
 
   // ─── Buka Snap popup → setelah bayar → cetak ────────────────────────────────
   const openSnapPayment = async () => {
-    if (!file) return
+    if (!files.length) return
     setIsProcessing(true)
     setError(null)
 
@@ -273,6 +322,7 @@ function App() {
       // 2. Buat transaksi → dapat snap token
       const orderId = createOrderId()
       setCurrentOrderId(orderId)
+      const fileNames = files.map((f) => f.name).join(', ')
 
       const txRes = await fetch(`${API_BASE_URL}/api/create-checkout-transaction`, {
         method: 'POST',
@@ -280,7 +330,7 @@ function App() {
         body: JSON.stringify({
           amount: totalPrice,
           order_id: orderId,
-          items: [{ id: 'PRINT-JOB', price: totalPrice, quantity: 1, name: `Print: ${file.name}` }],
+          items: [{ id: 'PRINT-JOB', price: totalPrice, quantity: 1, name: `Print: ${fileNames}` }],
           totalSheets: sheetCount,
         }),
       })
@@ -293,7 +343,8 @@ function App() {
       window.snap.pay(txData.token, {
         onSuccess: async () => {
           // Pembayaran selesai di dalam popup — record + print
-          await recordTransaction(orderId, totalPrice, [{ id: 'PRINT-JOB', price: totalPrice, quantity: 1, name: `Print: ${file.name}` }])
+          const fileNames = files.map((f) => f.name).join(', ')
+          await recordTransaction(orderId, totalPrice, [{ id: 'PRINT-JOB', price: totalPrice, quantity: 1, name: `Print: ${fileNames}` }])
           try { await sendPrintJob() } catch (e) {
             setError(`Pembayaran berhasil tapi print gagal: ${e.message}`)
           }
@@ -392,13 +443,23 @@ function App() {
                   </div>
                 ) : (
                   <>
-                    <button type="button" className="drop-panel" onClick={() => fileInputRef.current?.click()}>
+                    <div
+                      className={`drop-panel${isDragging ? ' drop-panel--dragging' : ''}`}
+                      onClick={() => fileInputRef.current?.click()}
+                      onDrop={handleDrop}
+                      onDragOver={handleDragOver}
+                      onDragLeave={handleDragLeave}
+                      role="button"
+                      tabIndex={0}
+                      aria-label="Area drop file"
+                      onKeyDown={(e) => e.key === 'Enter' && fileInputRef.current?.click()}
+                    >
                       <div className="drop-icon"><Upload size={34} /></div>
                       <h4>Tarik file ke sini atau pilih dokumen</h4>
-                      <p>Mendukung PDF, DOC, DOCX, JPG, PNG, dan WEBP untuk kebutuhan cetak cepat.</p>
+                      <p>Mendukung PDF, DOC, DOCX, JPG, PNG, dan WEBP — bisa pilih <strong>banyak file sekaligus</strong>.</p>
                       <span className="primary-button">Pilih File<ChevronRight size={18} /></span>
-                    </button>
-                    <input ref={fileInputRef} type="file" hidden accept=".pdf,.doc,.docx,image/*" onChange={handleFileUpload} />
+                    </div>
+                    <input ref={fileInputRef} type="file" hidden accept=".pdf,.doc,.docx,image/*" multiple onChange={handleFileUpload} />
                     {error && (
                       <div className="alert-box" role="alert">
                         <AlertCircle size={18} /><span>{error}</span>
@@ -424,23 +485,38 @@ function App() {
             )}
 
             {/* ── Step 1: Config ── */}
-            {step === 1 && file && (
+            {step === 1 && files.length > 0 && (
               <MotionSection
                 key="config"
                 initial={{ opacity: 0, x: 28 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -28 }}
                 className="stage stage-config"
               >
-                <div className="file-card">
-                  <div className="file-icon">
-                    {file.kind === 'image' ? <ImageIcon size={24} /> : <FileText size={24} />}
+                {/* Daftar file yang dipilih */}
+                <div className="file-list">
+                  <div className="file-list-header">
+                    <span className="file-list-count">{files.length} file dipilih</span>
+                    <button type="button" className="add-more-btn" onClick={() => fileInputRef.current?.click()}>
+                      <Upload size={14} /> Tambah File
+                    </button>
+                    <input ref={fileInputRef} type="file" hidden accept=".pdf,.doc,.docx,image/*" multiple onChange={handleFileUpload} />
                   </div>
-                  <div className="file-meta">
-                    <strong>{file.name}</strong>
-                    <span>{file.size} MB - {file.pages} halaman</span>
+                  {files.map((f, i) => (
+                    <div key={`${f.name}-${i}`} className="file-card">
+                      <div className="file-icon">
+                        {f.kind === 'image' ? <ImageIcon size={24} /> : <FileText size={24} />}
+                      </div>
+                      <div className="file-meta">
+                        <strong>{f.name}</strong>
+                        <span>{f.size} MB · {f.pages} halaman</span>
+                      </div>
+                      <button type="button" className="ghost-icon" onClick={() => removeFile(i)} aria-label={`Hapus ${f.name}`}>
+                        <X size={18} />
+                      </button>
+                    </div>
+                  ))}
+                  <div className="file-list-summary">
+                    <span>Total: <strong>{totalPages} halaman</strong> dari {files.length} file · {totalSizeMB} MB</span>
                   </div>
-                  <button type="button" className="ghost-icon" onClick={resetAll} aria-label="Reset dokumen">
-                    <X size={18} />
-                  </button>
                 </div>
 
                 {error && (
@@ -548,8 +624,8 @@ function App() {
                       </div>
                       <div className="qr-total">{formatCurrency(totalPrice)}</div>
                       <div className="payment-meta">
-                        <div><span>Dokumen</span><strong>{file.name}</strong></div>
-                        <div><span>Halaman</span><strong>{file.pages} hal × {config.copies} copy</strong></div>
+                        <div><span>Dokumen</span><strong>{files.length} file ({totalPages} hal)</strong></div>
+                        <div><span>Halaman</span><strong>{totalPages} hal × {config.copies} copy</strong></div>
                         <div><span>Printer</span><strong>Brother T720DW</strong></div>
                       </div>
                     </div>
@@ -607,16 +683,16 @@ function App() {
         <aside className="summary-card">
           <div className="summary-head">
             <p className="section-tag">Ringkasan Job</p>
-            <h3>{file ? 'Siap diproses' : 'Belum ada dokumen'}</h3>
+            <h3>{files.length > 0 ? `${files.length} file siap` : 'Belum ada dokumen'}</h3>
           </div>
           <div className="summary-hero">
             <span>Total pembayaran</span>
             <strong>{formatCurrency(totalPrice)}</strong>
-            <small>{file ? `${file.pages} halaman — ${config.copies} copy` : 'Upload dokumen untuk mulai'}</small>
+            <small>{files.length > 0 ? `${totalPages} halaman — ${config.copies} copy` : 'Upload dokumen untuk mulai'}</small>
           </div>
           <div className="summary-list">
-            <div><span>Dokumen</span><strong>{file ? file.name : '-'}</strong></div>
-            <div><span>Ukuran</span><strong>{file ? `${file.size} MB` : '-'}</strong></div>
+            <div><span>Dokumen</span><strong>{files.length > 0 ? `${files.length} file` : '-'}</strong></div>
+            <div><span>Ukuran</span><strong>{files.length > 0 ? `${totalSizeMB} MB` : '-'}</strong></div>
             <div><span>Spesifikasi</span><strong>{config.paperSize} — {config.color ? 'Warna' : 'B&W'}</strong></div>
             <div><span>Lembar output</span><strong>{sheetCount || 0} lembar</strong></div>
             <div><span>Bolak-balik</span><strong>{config.duplex ? 'Aktif' : 'Nonaktif'}</strong></div>
@@ -639,7 +715,7 @@ function App() {
               </strong>
               <span>
                 {step === 0 && 'Pilih file untuk mulai.'}
-                {step === 1 && 'Konfigurasi selesai, lanjut ke pembayaran.'}
+                {step === 1 && `${files.length} file siap, lanjut ke pembayaran.`}
                 {step === 2 && 'Klik Bayar Sekarang untuk membuka QR.'}
                 {step === 3 && `Job ${printJobId || ''} diterima printer.`}
               </span>

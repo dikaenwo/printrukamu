@@ -800,6 +800,76 @@
   border-bottom: 0;
 }
 
+/* ── Multi-file drag & drop ──────────────────────────────────────────────── */
+.drop-panel--dragging {
+  border-color: var(--accent) !important;
+  background: linear-gradient(180deg, rgba(255, 239, 231, 0.96), rgba(255, 250, 244, 0.96)) !important;
+  box-shadow: 0 0 0 4px rgba(188, 83, 43, 0.14), 0 22px 50px rgba(188, 83, 43, 0.12) !important;
+  transform: scale(1.01) !important;
+}
+
+.drop-panel--dragging .drop-icon {
+  background: linear-gradient(135deg, rgba(188, 83, 43, 0.24), rgba(255, 187, 115, 0.38));
+  transform: scale(1.1);
+}
+
+.file-list {
+  display: grid;
+  gap: 10px;
+}
+
+.file-list-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 4px 0 8px;
+  border-bottom: 1px dashed rgba(34, 30, 26, 0.12);
+  margin-bottom: 4px;
+}
+
+.file-list-count {
+  font-weight: 700;
+  font-size: 0.9rem;
+  color: var(--accent);
+}
+
+.add-more-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 9px 16px;
+  border-radius: 14px;
+  border: 1px dashed rgba(188, 83, 43, 0.38);
+  background: rgba(255, 239, 231, 0.6);
+  color: var(--accent);
+  font: inherit;
+  font-size: 0.84rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: transform 160ms ease, background 160ms ease, box-shadow 160ms ease;
+}
+
+.add-more-btn:hover {
+  transform: translateY(-1px);
+  background: rgba(255, 239, 231, 0.95);
+  box-shadow: 0 8px 20px rgba(188, 83, 43, 0.1);
+}
+
+.file-list-summary {
+  padding: 12px 16px;
+  border-radius: 16px;
+  background: rgba(255, 248, 242, 0.9);
+  border: 1px solid rgba(188, 83, 43, 0.1);
+  font-size: 0.88rem;
+  color: var(--muted);
+  text-align: center;
+}
+
+.file-list-summary strong {
+  color: var(--text);
+}
+
 /* ── Modal ──────────────────────────────────────────────────────────── */
 .modal-overlay {
   position: fixed;
