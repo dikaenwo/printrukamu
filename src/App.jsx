@@ -632,7 +632,7 @@ function App() {
             )}
 
             {/* ── Step 2: Pembayaran ── */}
-            {step === 2 && file && (
+            {step === 2 && files.length > 0 && (
               <MotionSection
                 key="payment"
                 initial={{ opacity: 0, scale: 0.96 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 1.03 }}
@@ -695,7 +695,7 @@ function App() {
             )}
 
             {/* ── Step 3: Cetak ── */}
-            {step === 3 && file && (
+            {step === 3 && files.length > 0 && (
               <MotionSection
                 key="print"
                 initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
