@@ -361,6 +361,7 @@ app.post('/api/admin/paper', (req, res) => {
   const { count } = req.body || {}
   if (typeof count === 'number') {
     const newCount = savePaperCount(count)
+    sendPaperAlert(newCount) // Trigger notif saat di-set manual
     res.json({ count: newCount })
   } else {
     res.status(400).json({ error: 'count harus berupa angka' })
