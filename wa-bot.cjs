@@ -27,17 +27,39 @@ app.use(express.json())
 
 const WA_BOT_PORT = process.env.WA_BOT_PORT || 3001
 
+// ─── Auto-detect Chromium untuk Raspberry Pi (ARM) ────────────────────────────
+const fs = require('fs')
+const CHROMIUM_PATHS = [
+  '/usr/bin/chromium-browser',    // Raspberry Pi OS
+  '/usr/bin/chromium',            // Debian/Ubuntu ARM
+  '/snap/bin/chromium',           // Snap
+  '/usr/bin/google-chrome',       // x86 Linux
+  '/usr/bin/google-chrome-stable',
+]
+const detectedChromium = CHROMIUM_PATHS.find((p) => { try { return fs.existsSync(p) } catch { return false } })
+
+if (detectedChromium) {
+  console.log(`[WA] Chromium ditemukan: ${detectedChromium}`)
+} else {
+  console.log('[WA] ⚠️ Chromium tidak ditemukan di system. Install dulu:')
+  console.log('    sudo apt install chromium-browser')
+  console.log('[WA] Akan coba pakai Puppeteer bundled Chrome (mungkin gagal di ARM)\n')
+}
+
 // ─── WhatsApp Client ──────────────────────────────────────────────────────────
 const client = new Client({
   authStrategy: new LocalAuth({ dataPath: './wa-session' }),
   puppeteer: {
     headless: true,
+    // Pakai Chromium system kalau ada (wajib untuk ARM/Raspberry Pi)
+    ...(detectedChromium ? { executablePath: detectedChromium } : {}),
     args: [
       '--no-sandbox',
       '--disable-setuid-sandbox',
       '--disable-dev-shm-usage',
       '--disable-gpu',
       '--single-process',
+      '--disable-extensions',
     ],
   },
 })
