@@ -127,6 +127,32 @@ async function sendPaperAlert(currentCount) {
   }
 }
 
+// ─── Pending Session Store ───────────────────────────────────────────────────
+const PENDING_SESSIONS_FILE = path.join(__dirname, 'pending-sessions.json')
+
+function loadPendingSessions() {
+  try {
+    if (!fs.existsSync(PENDING_SESSIONS_FILE)) { fs.writeFileSync(PENDING_SESSIONS_FILE, '[]', 'utf8') }
+    return JSON.parse(fs.readFileSync(PENDING_SESSIONS_FILE, 'utf8') || '[]')
+  } catch { return [] }
+}
+
+function savePendingSessions(sessions) {
+  fs.writeFileSync(PENDING_SESSIONS_FILE, JSON.stringify(sessions, null, 2), 'utf8')
+}
+
+function addPendingSession(session) {
+  const sessions = loadPendingSessions()
+  sessions.push({ ...session, created_at: new Date().toISOString() })
+  savePendingSessions(sessions)
+  console.log(`[SESSION] Pending session disimpan: ${session.filename} hal ${session.fromPage}–${session.toPage}`)
+}
+
+function removePendingSession(id) {
+  const sessions = loadPendingSessions()
+  savePendingSessions(sessions.filter(s => s.id !== id))
+}
+
 // ─── Payout Store (JSON file) ─────────────────────────────────────────────────
 const PAYOUTS_FILE = path.join(__dirname, 'payouts.json')
 
@@ -240,16 +266,14 @@ app.get('/api/transaction-status/:orderId', async (req, res) => {
   }
 })
 
-// Print endpoint — menerima file sebagai base64 JSON (lebih reliable dari multipart)
-app.post('/api/print', (req, res) => {
-  const { filename, data, copies = 1, duplex = false, paperSize = 'A4', color = false, totalSheets = 1 } = req.body || {}
-
-  if (!data) return res.status(400).json({ error: 'Tidak ada data file yang dikirim.' })
-
-  const currentPaper = loadPaperCount()
-  if (currentPaper < totalSheets) {
-    return res.status(400).json({ error: `Kertas tidak cukup. Sisa kertas: ${currentPaper} lembar. Dibutuhkan: ${totalSheets} lembar.` })
-  }
+// ─── Core print function (support page range) ───────────────────────────────
+function executePrint({ filename, data, copies, duplex, paperSize, color, fromPage, toPage, onSuccess, onError }) {
+  const numCopies = Math.max(1, parseInt(copies, 10) || 1)
+  const media     = { A4: 'A4', Letter: 'Letter', Legal: 'Legal' }[paperSize] || 'A4'
+  const sides     = duplex === true || duplex === 'true' ? 'two-sided-long-edge' : 'one-sided'
+  const isColor   = color === true || color === 'true'
+  const colorOpts = isColor ? '' : '-o ColorModel=Gray -o print-color-mode=monochrome'
+  const pageRange = (fromPage && toPage) ? `-o page-ranges=${fromPage}-${toPage}` : ''
 
   const ext = path.extname(filename || 'document.pdf').toLowerCase() || '.pdf'
   const tempPath = path.join(os.tmpdir(), `print-${Date.now()}${ext}`)
@@ -257,60 +281,170 @@ app.post('/api/print', (req, res) => {
   try {
     fs.writeFileSync(tempPath, Buffer.from(data, 'base64'))
   } catch (e) {
-    return res.status(500).json({ error: `Gagal menyimpan file: ${e.message}` })
+    return onError(`Gagal menyimpan file: ${e.message}`)
   }
 
-  const numCopies = Math.max(1, parseInt(copies, 10) || 1)
-  const media     = { A4: 'A4', Letter: 'Letter', Legal: 'Legal' }[paperSize] || 'A4'
-  const sides     = duplex === true || duplex === 'true' ? 'two-sided-long-edge' : 'one-sided'
-  const isColor   = color === true || color === 'true'
-  const colorOpts = isColor ? '' : '-o ColorModel=Gray -o print-color-mode=monochrome'
-
-  // Ekstensi yang tidak didukung CUPS secara langsung — perlu konversi ke PDF dulu
   const needsConvert = ['.docx', '.doc', '.odt', '.jpg', '.jpeg', '.png', '.webp'].includes(ext)
 
   const doPrint = (fileToPrint, cleanup = []) => {
-    const command = `lp -d "${PRINTER_NAME}" -n ${numCopies} -o media=${media} -o sides=${sides} ${colorOpts} "${fileToPrint}"`
+    const command = `lp -d "${PRINTER_NAME}" -n ${numCopies} -o media=${media} -o sides=${sides} ${colorOpts} ${pageRange} "${fileToPrint}"`
     console.log('[PRINT]', command)
     exec(command, (error, stdout, stderr) => {
-      // Bersihkan semua file temp
       ;[tempPath, ...cleanup].forEach((f) => { try { fs.unlinkSync(f) } catch {} })
       if (error) {
         console.error('[PRINT] Error:', stderr || error.message)
-        return res.status(500).json({ error: `Gagal mencetak: ${stderr?.trim() || error.message}` })
+        return onError(`Gagal mencetak: ${stderr?.trim() || error.message}`)
       }
-
-      // Kurangi jumlah kertas
-      const newPaperCount = savePaperCount(currentPaper - totalSheets)
-
-      // Kirim notif WA kalau kertas hampir habis / habis
-      sendPaperAlert(newPaperCount)
-
       const jobId = (stdout.match(/request id is (\S+)/) || [])[1] || 'unknown'
       console.log('[PRINT] Job:', stdout.trim())
-      return res.json({ ok: true, jobId, message: stdout.trim() })
+      onSuccess(jobId)
     })
   }
 
   if (needsConvert) {
-    // Konversi ke PDF via LibreOffice headless
-    // Install di Raspberry Pi: sudo apt install libreoffice
     const convertCmd = `libreoffice --headless --convert-to pdf --outdir "${os.tmpdir()}" "${tempPath}"`
     console.log('[CONVERT]', convertCmd)
-    exec(convertCmd, { timeout: 30000 }, (convErr, convOut, convStderr) => {
+    exec(convertCmd, { timeout: 30000 }, (convErr, _out, convStderr) => {
       if (convErr) {
         try { fs.unlinkSync(tempPath) } catch {}
-        console.error('[CONVERT] Error:', convStderr || convErr.message)
-        return res.status(500).json({ error: `Gagal konversi file ke PDF: ${convStderr?.trim() || convErr.message}. Pastikan LibreOffice terinstall: sudo apt install libreoffice` })
+        return onError(`Gagal konversi file ke PDF: ${convStderr?.trim() || convErr.message}`)
       }
-      // LibreOffice output: file.docx → file.pdf di folder yang sama
       const pdfPath = path.join(os.tmpdir(), path.basename(tempPath, ext) + '.pdf')
-      console.log('[CONVERT] OK →', pdfPath)
       doPrint(pdfPath, [pdfPath])
     })
   } else {
     doPrint(tempPath)
   }
+}
+
+// ─── Auto-continue pending sessions ─────────────────────────────────────────
+async function processPendingSessions() {
+  const sessions = loadPendingSessions()
+  if (sessions.length === 0) return
+
+  const session = sessions[0] // Proses satu per satu (FIFO)
+  const available = loadPaperCount()
+  if (available <= 0) {
+    console.log('[SESSION] Kertas masih 0, pending session belum bisa dilanjutkan')
+    return
+  }
+
+  const sheetsNeeded = session.toPage - session.fromPage + 1
+  const sheetsToPrint = Math.min(sheetsNeeded, available)
+  const actualToPage = session.fromPage + sheetsToPrint - 1
+
+  console.log(`[SESSION] Auto-continue: ${session.filename} hal ${session.fromPage}–${actualToPage} (${sheetsToPrint} lembar)`)
+
+  executePrint({
+    filename: session.filename,
+    data: session.data,
+    copies: session.copies,
+    duplex: session.duplex,
+    paperSize: session.paperSize,
+    color: session.color,
+    fromPage: session.fromPage,
+    toPage: actualToPage,
+    onSuccess: async (jobId) => {
+      const newPaper = savePaperCount(available - sheetsToPrint)
+      sendPaperAlert(newPaper)
+
+      if (actualToPage < session.toPage) {
+        // Masih ada sisa halaman → update pending session
+        const sessions2 = loadPendingSessions()
+        const idx = sessions2.findIndex(s => s.id === session.id)
+        if (idx !== -1) {
+          sessions2[idx].fromPage = actualToPage + 1
+          savePendingSessions(sessions2)
+        }
+        const remaining = session.toPage - actualToPage
+        console.log(`[SESSION] Sisa ${remaining} halaman masih pending`)
+        // Kirim WA notif sesi sebagian
+        if (WA_NOTIFY_URL && WA_NOTIFY_PHONE) {
+          fetch(WA_NOTIFY_URL, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ phone: WA_NOTIFY_PHONE, message: `⚠️ *Sesi Print Belum Selesai*\n\nDokumen: ${session.filename}\nSudah dicetak: hal 1–${actualToPage}\nSisa: ${remaining} halaman (sesi berikutnya)\n\nIsi kertas lagi lalu update stok di dashboard untuk lanjutkan otomatis.\n\n_Rukkamu Print System_` }),
+          }).catch(() => {})
+        }
+      } else {
+        // Semua halaman selesai
+        removeP endingSession(session.id)
+        console.log(`[SESSION] ✅ Semua sesi selesai: ${session.filename}`)
+        if (WA_NOTIFY_URL && WA_NOTIFY_PHONE) {
+          fetch(WA_NOTIFY_URL, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ phone: WA_NOTIFY_PHONE, message: `✅ *Print Selesai*\n\nDokumen: ${session.filename}\nSemua ${session.toPage} halaman sudah tercetak.\n\n_Rukkamu Print System_` }),
+          }).catch(() => {})
+        }
+      }
+    },
+    onError: (err) => {
+      console.error('[SESSION] Error saat lanjut sesi:', err)
+    },
+  })
+}
+
+// Print endpoint — menerima file sebagai base64 JSON (lebih reliable dari multipart)
+app.post('/api/print', (req, res) => {
+  const { filename, data, copies = 1, duplex = false, paperSize = 'A4', color = false, totalSheets = 1 } = req.body || {}
+
+  if (!data) return res.status(400).json({ error: 'Tidak ada data file yang dikirim.' })
+
+  const currentPaper = loadPaperCount()
+
+  const sheetsToPrint = Math.min(totalSheets, currentPaper)
+  const hasMore = totalSheets > currentPaper
+  const sessionId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+
+  // Kalau tidak ada kertas sama sekali, tolak
+  if (currentPaper <= 0) {
+    return res.status(400).json({ error: `Kertas habis. Sisa kertas: 0 lembar. Hubungi admin untuk mengisi ulang.` })
+  }
+
+  // Langsung respon ke client — print jalan di background
+  res.json({
+    ok: true,
+    message: hasMore
+      ? `Dokumen ${totalSheets} halaman akan dicetak dalam beberapa sesi. Sesi 1 (${sheetsToPrint} hal) dimulai. Sesi berikutnya otomatis saat kertas diisi.`
+      : `Dokumen sedang dicetak (${sheetsToPrint} halaman).`,
+    multiSession: hasMore,
+    sessionId,
+  })
+
+  executePrint({
+    filename, data, copies, duplex, paperSize, color,
+    fromPage: 1,
+    toPage: sheetsToPrint,
+    onSuccess: (jobId) => {
+      const newPaper = savePaperCount(currentPaper - sheetsToPrint)
+      sendPaperAlert(newPaper)
+      console.log(`[PRINT] ✅ Sesi 1 selesai (${sheetsToPrint} hal), jobId: ${jobId}`)
+
+      if (hasMore) {
+        addPendingSession({
+          id: sessionId,
+          filename, data, copies, duplex, paperSize, color,
+          fromPage: sheetsToPrint + 1,
+          toPage: totalSheets,
+        })
+        // WA notif: ada sesi pending
+        if (WA_NOTIFY_URL && WA_NOTIFY_PHONE) {
+          fetch(WA_NOTIFY_URL, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              phone: WA_NOTIFY_PHONE,
+              message: `⚠️ *Kertas Habis — Sesi Berikutnya Pending*\n\nDokumen: ${filename}\nSudah dicetak: hal 1–${sheetsToPrint}\nSisa: ${totalSheets - sheetsToPrint} halaman menunggu\n\nIsi kertas lalu update stok di dashboard admin — print akan lanjut otomatis.\n\n_Rukkamu Print System_`,
+            }),
+          }).catch(() => {})
+        }
+      }
+    },
+    onError: (err) => {
+      console.error('[PRINT] Error:', err)
+    },
+  })
 })
 
 // ─── Transaction Recording ───────────────────────────────────────────────────
@@ -371,11 +505,28 @@ app.post('/api/admin/paper', (req, res) => {
   const { count } = req.body || {}
   if (typeof count === 'number') {
     const newCount = savePaperCount(count)
-    sendPaperAlert(newCount) // Trigger notif saat di-set manual
-    res.json({ count: newCount })
+    sendPaperAlert(newCount)
+    res.json({ count: newCount, pendingSessions: loadPendingSessions().length })
+    // Auto-continue pending sessions kalau kertas > 0
+    if (newCount > 0) {
+      setTimeout(() => processPendingSessions(), 500)
+    }
   } else {
     res.status(400).json({ error: 'count harus berupa angka' })
   }
+})
+
+app.get('/api/admin/pending-sessions', (_req, res) => {
+  const sessions = loadPendingSessions()
+  // Jangan return data base64 (terlalu besar), cukup info saja
+  res.json(sessions.map(s => ({
+    id: s.id,
+    filename: s.filename,
+    fromPage: s.fromPage,
+    toPage: s.toPage,
+    created_at: s.created_at,
+    remaining: s.toPage - s.fromPage + 1,
+  })))
 })
 
 app.post('/api/admin/payouts', (req, res) => {

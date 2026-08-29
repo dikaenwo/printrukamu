@@ -286,6 +286,14 @@ function Dashboard({ onLogout }) {
     const stored = localStorage.getItem('rk_paper_count')
     return stored !== null ? parseInt(stored, 10) : 500
   })
+  const [pendingSessions, setPendingSessions] = useState([])
+
+  const fetchPendingSessions = useCallback(async () => {
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/admin/pending-sessions`)
+      if (res.ok) setPendingSessions(await res.json())
+    } catch {}
+  }, [])
 
   const fetchAnalytics = useCallback(async (showLoading = false) => {
     if (showLoading) setLoading(true)
@@ -336,15 +344,18 @@ function Dashboard({ onLogout }) {
   }, [])
 
   useEffect(() => {
-    // Panggil dalam async function terpisah agar tidak trigger cascading render di strict mode
     const loadData = async () => {
       await fetchAnalytics(true)
+      await fetchPendingSessions()
     }
     loadData()
-    
-    const interval = setInterval(() => fetchAnalytics(false), REFRESH_INTERVAL)
+
+    const interval = setInterval(() => {
+      fetchAnalytics(false)
+      fetchPendingSessions()
+    }, REFRESH_INTERVAL)
     return () => clearInterval(interval)
-  }, [fetchAnalytics])
+  }, [fetchAnalytics, fetchPendingSessions])
 
   const handlePaperUpdate = (val) => {
     setPaperCount(val)
@@ -462,7 +473,20 @@ function Dashboard({ onLogout }) {
             {/* Paper Manager + Revenue Split */}
             <div className="admin-split-grid admin-split-grid-3">
               {/* Paper Manager */}
-              <PaperManager paperCount={paperCount} onUpdate={handlePaperUpdate} />
+              <div>
+                {pendingSessions.length > 0 && (
+                  <div className="paper-alert" role="alert" style={{ marginBottom: '12px', background: 'var(--admin-accent)1a', borderColor: 'var(--admin-accent)' }}>
+                    🖨️ <strong>{pendingSessions.length} sesi print pending</strong> — menunggu kertas diisi.<br />
+                    {pendingSessions.map(s => (
+                      <span key={s.id} style={{ fontSize: '0.8rem', opacity: 0.85 }}>
+                        📄 {s.filename}: sisa {s.remaining} hal (hal {s.fromPage}–{s.toPage})<br />
+                      </span>
+                    ))}
+                    <span style={{ fontSize: '0.8rem', opacity: 0.75 }}>Isi kertas lalu update stok di bawah — print lanjut otomatis ✅</span>
+                  </div>
+                )}
+                <PaperManager paperCount={paperCount} onUpdate={handlePaperUpdate} />
+              </div>
 
               {/* Revenue Split */}
               <div className="admin-split-card admin-animate-in">
