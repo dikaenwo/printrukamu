@@ -88,8 +88,7 @@ function savePaperCount(count) {
 const WA_NOTIFY_URL = process.env.WA_NOTIFY_URL || ''       // URL endpoint WA bot di VPS kamu
 const WA_NOTIFY_PHONE = process.env.WA_NOTIFY_PHONE || ''   // Nomor tujuan notif (format: 6281343524552)
 const WA_NOTIFY_THRESHOLD = parseInt(process.env.WA_NOTIFY_THRESHOLD || '10', 10)  // Kirim notif kalau sisa ≤ ini
-let lastNotifTime = 0  // Cooldown agar tidak spam
-const NOTIF_COOLDOWN = 1 * 60 * 1000  // 1 menit
+let lastNotifTime = 0  // unused, kept for compatibility
 
 async function sendPaperAlert(currentCount) {
   if (!WA_NOTIFY_URL || !WA_NOTIFY_PHONE) {
@@ -97,10 +96,6 @@ async function sendPaperAlert(currentCount) {
     return
   }
   if (currentCount > WA_NOTIFY_THRESHOLD) return
-  if (Date.now() - lastNotifTime < NOTIF_COOLDOWN) {
-    console.log('[WA-NOTIF] Skipped — cooldown aktif (5 menit)')
-    return
-  }
 
   const message = currentCount <= 0
     ? `🚨 *KERTAS HABIS!*\n\nKertas di printer Rukkamu sudah habis (0 lembar). Segera isi ulang tray printer.\n\n_Pesan otomatis dari Rukkamu Print System_`
