@@ -51,6 +51,7 @@ const client = new Client({
   authStrategy: new LocalAuth({ dataPath: './wa-session' }),
   puppeteer: {
     headless: true,
+    pipe: true,
     // Pakai Chromium system kalau ada (wajib untuk ARM/Raspberry Pi)
     ...(detectedChromium ? { executablePath: detectedChromium } : {}),
     args: [
@@ -60,6 +61,11 @@ const client = new Client({
       '--disable-gpu',
       '--single-process',
       '--disable-extensions',
+      '--no-first-run',
+      '--no-zygote',
+      '--disable-accelerated-2d-canvas',
+      '--disable-web-security',
+      '--ignore-certificate-errors',
     ],
   },
 })
