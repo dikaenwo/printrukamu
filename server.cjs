@@ -89,7 +89,7 @@ const WA_NOTIFY_URL = process.env.WA_NOTIFY_URL || ''       // URL endpoint WA b
 const WA_NOTIFY_PHONE = process.env.WA_NOTIFY_PHONE || ''   // Nomor tujuan notif (format: 6281343524552)
 const WA_NOTIFY_THRESHOLD = parseInt(process.env.WA_NOTIFY_THRESHOLD || '10', 10)  // Kirim notif kalau sisa ≤ ini
 let lastNotifTime = 0  // Cooldown agar tidak spam
-const NOTIF_COOLDOWN = 5 * 60 * 1000  // 5 menit
+const NOTIF_COOLDOWN = 1 * 60 * 1000  // 1 menit
 
 async function sendPaperAlert(currentCount) {
   if (!WA_NOTIFY_URL || !WA_NOTIFY_PHONE) {
