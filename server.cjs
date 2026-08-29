@@ -69,12 +69,12 @@ const PAPER_FILE = path.join(__dirname, 'paper.json')
 
 function loadPaperCount() {
   try {
-    if (!fs.existsSync(PAPER_FILE)) { fs.writeFileSync(PAPER_FILE, '{"count": 65}', 'utf8') }
+    if (!fs.existsSync(PAPER_FILE)) { fs.writeFileSync(PAPER_FILE, '{"count": 130}', 'utf8') }
     const raw = fs.readFileSync(PAPER_FILE, 'utf8')
     const parsed = JSON.parse(raw)
-    return typeof parsed.count === 'number' ? parsed.count : 65
+    return typeof parsed.count === 'number' ? parsed.count : 130
   } catch {
-    return 65
+    return 130
   }
 }
 

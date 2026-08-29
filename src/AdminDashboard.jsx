@@ -204,7 +204,7 @@ function PaperManager({ paperCount, onUpdate }) {
     }
   }
 
-  const pct = Math.min(100, Math.round((paperCount / 65) * 100))
+  const pct = Math.min(100, Math.round((paperCount / 130) * 100))
   const barColor =
     paperCount <= 10
       ? 'var(--admin-red)'
@@ -233,7 +233,7 @@ function PaperManager({ paperCount, onUpdate }) {
         />
       </div>
       <p className="paper-bar-hint">
-        {pct}% kapasitas tray (maks 65 lembar)
+        {pct}% kapasitas tray (maks 130 lembar)
       </p>
 
       {paperCount <= 10 && (
