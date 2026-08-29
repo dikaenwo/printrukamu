@@ -368,7 +368,7 @@ async function processPendingSessions() {
         }
       } else {
         // Semua halaman selesai
-        removeP endingSession(session.id)
+        removePendingSession(session.id)
         console.log(`[SESSION] ✅ Semua sesi selesai: ${session.filename}`)
         if (WA_NOTIFY_URL && WA_NOTIFY_PHONE) {
           fetch(WA_NOTIFY_URL, {
