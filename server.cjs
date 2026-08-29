@@ -9,7 +9,16 @@ require('dotenv').config()
 
 const app = express()
 
-app.use(cors())
+app.use(cors({
+  origin: [
+    /localhost/,
+    /print\.rukkamu\.local/,
+    /rukkamu\.local/,
+    /\.trycloudflare\.com$/,
+    /\.rukkamu\.com$/,
+  ],
+  credentials: true,
+}))
 app.use(express.json({ limit: '50mb' }))  // limit besar untuk file base64
 
 const PORT = process.env.PORT || 5050
@@ -453,6 +462,17 @@ app.get('/api/admin/analytics', (_req, res) => {
     },
   })
 })
+
+// ─── Serve Frontend Build (Production) ───────────────────────────────────────
+const distPath = path.join(__dirname, 'dist')
+if (fs.existsSync(distPath)) {
+  app.use(express.static(distPath))
+  app.get('*', (req, res, next) => {
+    if (req.path.startsWith('/api/')) return next()
+    res.sendFile(path.join(distPath, 'index.html'))
+  })
+  console.log('[STATIC] Serving frontend from ./dist')
+}
 
 app.use((req, res) => {
   console.log(`[404] Route tidak ditemukan: ${req.method} ${req.originalUrl}`)
