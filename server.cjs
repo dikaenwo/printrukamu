@@ -227,11 +227,11 @@ app.post('/api/create-checkout-transaction', async (req, res) => {
   const grossAmount = Number(amount) || 0
   if (!grossAmount || !order_id) return res.status(400).json({ error: 'amount dan order_id wajib diisi.' })
 
-  // Pengecekan sisa kertas
+  // Hanya block kalau kertas = 0 (multi-sesi handled di /api/print)
   if (totalSheets) {
     const currentPaper = loadPaperCount()
-    if (currentPaper < totalSheets) {
-      return res.status(400).json({ error: `Kertas di printer tidak cukup. Sisa: ${currentPaper} lembar, Butuh: ${totalSheets} lembar. Silakan hubungi admin.` })
+    if (currentPaper <= 0) {
+      return res.status(400).json({ error: `Kertas di printer habis (0 lembar). Silakan hubungi admin.` })
     }
   }
 

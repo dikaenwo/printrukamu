@@ -131,12 +131,12 @@ function App() {
 
       const totalPages = analyzed.reduce((s, a) => s + a.meta.pages, 0)
 
-      // Cek stok kertas
+      // Cek stok kertas — hanya block kalau kertas = 0 (multi-sesi handled di server)
       try {
         const res = await fetch(`${API_BASE_URL}/api/admin/paper`)
         if (res.ok) {
           const data = await res.json()
-          if (data.count < totalPages) {
+          if (data.count <= 0) {
             setPaperError(true)
             setIsAnalyzing(false)
             return
@@ -200,11 +200,12 @@ function App() {
   const proceedToPayment = async () => {
     if (!files.length) return
     setIsProcessing(true)
+    // Cek stok kertas — hanya block kalau kertas = 0 (multi-sesi handled di server)
     try {
       const res = await fetch(`${API_BASE_URL}/api/admin/paper`)
       if (res.ok) {
         const data = await res.json()
-        if (data.count < sheetCount) {
+        if (data.count <= 0) {
           setPaperError(true)
           setIsProcessing(false)
           return
