@@ -12,6 +12,8 @@ export default defineConfig({
       'rukkamu.local',
       '.trycloudflare.com',
       '.rukkamu.com',
+      'rukamu.store',
+      '.rukamu.store',
     ],
     proxy: {
       '/api': {

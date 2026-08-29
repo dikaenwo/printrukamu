@@ -16,6 +16,7 @@ app.use(cors({
     /rukkamu\.local/,
     /\.trycloudflare\.com$/,
     /\.rukkamu\.com$/,
+    /rukamu\.store$/,
   ],
   credentials: true,
 }))
@@ -467,8 +468,8 @@ app.get('/api/admin/analytics', (_req, res) => {
 const distPath = path.join(__dirname, 'dist')
 if (fs.existsSync(distPath)) {
   app.use(express.static(distPath))
-  app.get('*', (req, res, next) => {
-    if (req.path.startsWith('/api/')) return next()
+  app.use((req, res, next) => {
+    if (req.method !== 'GET' || req.path.startsWith('/api/')) return next()
     res.sendFile(path.join(distPath, 'index.html'))
   })
   console.log('[STATIC] Serving frontend from ./dist')
