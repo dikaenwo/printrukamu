@@ -630,19 +630,6 @@ function App() {
                     </div>
                   </section>
 
-                  <section className="control-group">
-                    <div className="control-heading">
-                      <FileText size={18} />
-                      <div><strong>Ukuran kertas</strong><span>Sesuaikan dengan dokumen yang dicetak</span></div>
-                    </div>
-                    <div className="select-row">
-                      {['A4', 'Letter', 'Legal'].map((size) => (
-                        <button key={size} type="button" className={`chip-button ${config.paperSize === size ? 'selected' : ''}`} onClick={() => updateConfig('paperSize', size)}>
-                          {size}
-                        </button>
-                      ))}
-                    </div>
-                  </section>
 
                   <section className="control-group">
                     <div className="toggle-stack">
