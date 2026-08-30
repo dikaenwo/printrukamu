@@ -80,7 +80,9 @@ function App() {
   const [isAnalyzing, setIsAnalyzing] = useState(false)
   const [isProcessing, setIsProcessing] = useState(false)
   const [isDragging, setIsDragging] = useState(false)
+  const [printSessions, setPrintSessions] = useState([]) // [{sesi:1|2, pages:'1-3', status:'done'|'pending', sessionId}]
   const fileInputRef = useRef(null)
+  const sessionPollRef = useRef(null)
 
   // ─── File analysis ──────────────────────────────────────────────────────────
   const analyzeFile = async (fileObject) => {
@@ -251,12 +253,14 @@ function App() {
   const sendPrintJob = async () => {
     if (!rawFiles.length || !files.length) return
 
+    const sessions = []
     let lastJobId = 'unknown'
-    // Kirim setiap file satu per satu secara berurutan
+
     for (let i = 0; i < rawFiles.length; i++) {
       const rawFile = rawFiles[i]
       const fileMeta = files[i]
       const base64 = await encodeBase64(rawFile)
+      const totalSheets = Math.ceil(fileMeta.pages / (config.duplex ? 2 : 1)) * config.copies
 
       const response = await fetch(`${API_BASE_URL}/api/print`, {
         method: 'POST',
@@ -268,14 +272,45 @@ function App() {
           duplex: config.duplex,
           paperSize: config.paperSize,
           color: config.color,
-          totalSheets: Math.ceil(fileMeta.pages / (config.duplex ? 2 : 1)) * config.copies,
+          totalSheets,
         }),
       })
       const data = await response.json()
       if (!response.ok) throw new Error(data.error || `Gagal mengirim file ke-${i + 1} ke printer.`)
-      lastJobId = data.jobId || 'unknown'
+
+      lastJobId = data.jobId || data.sessionId || 'unknown'
+
+      if (data.multiSession && data.sessionId) {
+        // Ambil info kertas saat ini untuk tahu sesi 1 sampai halaman berapa
+        let paperCount = totalSheets
+        try {
+          const pr = await fetch(`${API_BASE_URL}/api/admin/paper`)
+          if (pr.ok) { const pj = await pr.json(); paperCount = pj.count + (totalSheets - pj.count) }
+        } catch {}
+        const sesi1To = Math.min(totalSheets, paperCount)
+        sessions.push({ sesi: 1, pages: `1–${sesi1To}`, status: 'done', filename: fileMeta.name })
+        sessions.push({ sesi: 2, pages: `${sesi1To + 1}–${totalSheets}`, status: 'pending', sessionId: data.sessionId, filename: fileMeta.name })
+
+        // Poll status sesi 2
+        if (sessionPollRef.current) clearInterval(sessionPollRef.current)
+        sessionPollRef.current = setInterval(async () => {
+          try {
+            const sr = await fetch(`${API_BASE_URL}/api/session/${data.sessionId}`)
+            const sj = await sr.json()
+            if (sj.status === 'done') {
+              clearInterval(sessionPollRef.current)
+              setPrintSessions(prev => prev.map(s =>
+                s.sessionId === data.sessionId ? { ...s, status: 'done' } : s
+              ))
+            }
+          } catch {}
+        }, 10000)
+      } else {
+        sessions.push({ sesi: 1, pages: `1–${totalSheets}`, status: 'done', filename: fileMeta.name })
+      }
     }
 
+    setPrintSessions(sessions)
     setPrintJobId(lastJobId)
     setStep(3)
   }
@@ -767,6 +802,29 @@ function App() {
               </span>
             </div>
           </div>
+
+          {/* ── Sesi Print (multi-session) ── */}
+          {step === 3 && printSessions.length > 0 && (
+            <div style={{ marginTop: '12px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+              {printSessions.map((s, i) => (
+                <div key={i} style={{
+                  padding: '10px 14px',
+                  borderRadius: '10px',
+                  background: s.status === 'done' ? 'rgba(34,197,94,0.1)' : 'rgba(251,146,60,0.1)',
+                  border: `1px solid ${s.status === 'done' ? 'rgba(34,197,94,0.4)' : 'rgba(251,146,60,0.4)'}`,
+                  fontSize: '0.82rem',
+                }}>
+                  <div style={{ fontWeight: 700, marginBottom: '2px' }}>
+                    {s.status === 'done' ? '✅' : '⏳'} Sesi {s.sesi}
+                  </div>
+                  <div style={{ opacity: 0.8 }}>Halaman {s.pages}</div>
+                  <div style={{ marginTop: '3px', fontWeight: 600, color: s.status === 'done' ? '#22c55e' : '#fb923c' }}>
+                    {s.status === 'done' ? 'Sudah dicetak' : 'Menunggu kertas diisi admin...'}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
         </aside>
       </div>
 

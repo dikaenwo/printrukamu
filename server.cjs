@@ -513,7 +513,6 @@ app.post('/api/admin/paper', (req, res) => {
 
 app.get('/api/admin/pending-sessions', (_req, res) => {
   const sessions = loadPendingSessions()
-  // Jangan return data base64 (terlalu besar), cukup info saja
   res.json(sessions.map(s => ({
     id: s.id,
     filename: s.filename,
@@ -522,6 +521,22 @@ app.get('/api/admin/pending-sessions', (_req, res) => {
     created_at: s.created_at,
     remaining: s.toPage - s.fromPage + 1,
   })))
+})
+
+// Public: cek status sesi print user (polling dari frontend)
+app.get('/api/session/:sessionId', (req, res) => {
+  const sessions = loadPendingSessions()
+  const session = sessions.find(s => s.id === req.params.sessionId)
+  if (session) {
+    res.json({
+      status: 'pending',
+      fromPage: session.fromPage,
+      toPage: session.toPage,
+      remaining: session.toPage - session.fromPage + 1,
+    })
+  } else {
+    res.json({ status: 'done' })
+  }
 })
 
 app.post('/api/admin/payouts', (req, res) => {
