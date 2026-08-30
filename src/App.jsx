@@ -673,7 +673,8 @@ function App() {
                           <input
                             type="number" min={1} max={totalPages}
                             value={config.pageFrom}
-                            onChange={e => updateConfig('pageFrom', Math.min(Math.max(1, parseInt(e.target.value) || 1), config.pageTo))}
+                            onChange={e => { const v = parseInt(e.target.value); if (!isNaN(v)) updateConfig('pageFrom', v) }}
+                            onBlur={() => updateConfig('pageFrom', Math.min(Math.max(1, config.pageFrom), config.pageTo))}
                             style={{ width: '100%', padding: '8px 10px', borderRadius: '8px', border: '1px solid var(--border)', background: 'var(--surface)', color: 'inherit', fontSize: '0.9rem' }}
                           />
                         </div>
@@ -683,7 +684,8 @@ function App() {
                           <input
                             type="number" min={config.pageFrom} max={totalPages}
                             value={config.pageTo}
-                            onChange={e => updateConfig('pageTo', Math.min(Math.max(config.pageFrom, parseInt(e.target.value) || 1), totalPages))}
+                            onChange={e => { const v = parseInt(e.target.value); if (!isNaN(v)) updateConfig('pageTo', v) }}
+                            onBlur={() => updateConfig('pageTo', Math.min(Math.max(config.pageFrom, config.pageTo), totalPages))}
                             style={{ width: '100%', padding: '8px 10px', borderRadius: '8px', border: '1px solid var(--border)', background: 'var(--surface)', color: 'inherit', fontSize: '0.9rem' }}
                           />
                         </div>
