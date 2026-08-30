@@ -19,6 +19,7 @@ import {
 } from 'lucide-react'
 import { PDFDocument } from 'pdf-lib'
 import JSZip from 'jszip'
+import PdfPreview from './PdfPreview'
 import './App.css'
 
 const MotionSection = motion.section
@@ -606,6 +607,29 @@ function App() {
                     <span>Total: <strong>{totalPages} halaman</strong> dari {files.length} file · {totalSizeMB} MB</span>
                   </div>
                 </div>
+
+                {/* ── PDF Page Preview ── */}
+                {rawFiles.length === 1 && rawFiles[0]?.name?.toLowerCase().endsWith('.pdf') && (
+                  <div style={{ marginTop: '12px' }}>
+                    <p style={{ fontSize: '0.8rem', opacity: 0.55, marginBottom: '6px' }}>
+                      👁️ Preview halaman{config.pageRangeEnabled ? ' — klik untuk atur range' : ''}
+                    </p>
+                    <PdfPreview
+                      rawFile={rawFiles[0]}
+                      pageFrom={config.pageFrom}
+                      pageTo={config.pageTo}
+                      pageRangeEnabled={config.pageRangeEnabled}
+                      onPageClick={(pageNum) => {
+                        if (!config.pageRangeEnabled) return
+                        if (pageNum <= config.pageFrom) {
+                          updateConfig('pageFrom', pageNum)
+                        } else {
+                          updateConfig('pageTo', pageNum)
+                        }
+                      }}
+                    />
+                  </div>
+                )}
 
                 {error && (
                   <div className="alert-box" role="alert" style={{ margin: '16px 0' }}>
