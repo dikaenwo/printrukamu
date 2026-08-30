@@ -281,15 +281,10 @@ function App() {
       lastJobId = data.jobId || data.sessionId || 'unknown'
 
       if (data.multiSession && data.sessionId) {
-        // Ambil info kertas saat ini untuk tahu sesi 1 sampai halaman berapa
-        let paperCount = totalSheets
-        try {
-          const pr = await fetch(`${API_BASE_URL}/api/admin/paper`)
-          if (pr.ok) { const pj = await pr.json(); paperCount = pj.count + (totalSheets - pj.count) }
-        } catch {}
-        const sesi1To = Math.min(totalSheets, paperCount)
+        const sesi1To = data.sesi1Pages || sheetsToPrint
+        const totalPgs = data.totalPages || totalSheets
         sessions.push({ sesi: 1, pages: `1–${sesi1To}`, status: 'done', filename: fileMeta.name })
-        sessions.push({ sesi: 2, pages: `${sesi1To + 1}–${totalSheets}`, status: 'pending', sessionId: data.sessionId, filename: fileMeta.name })
+        sessions.push({ sesi: 2, pages: `${sesi1To + 1}–${totalPgs}`, status: 'pending', sessionId: data.sessionId, filename: fileMeta.name })
 
         // Poll status sesi 2
         if (sessionPollRef.current) clearInterval(sessionPollRef.current)

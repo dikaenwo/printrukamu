@@ -388,14 +388,18 @@ app.post('/api/print', (req, res) => {
 
   const currentPaper = loadPaperCount()
 
-  const sheetsToPrint = Math.min(totalSheets, currentPaper)
-  const hasMore = totalSheets > currentPaper
-  const sessionId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
-
   // Kalau tidak ada kertas sama sekali, tolak
   if (currentPaper <= 0) {
     return res.status(400).json({ error: `Kertas habis. Sisa kertas: 0 lembar. Hubungi admin untuk mengisi ulang.` })
   }
+
+  const sheetsToPrint = Math.min(totalSheets, currentPaper)
+  const hasMore = totalSheets > currentPaper
+  const sessionId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+
+  // ⚡ Kurangi kertas SEGERA (sebelum print selesai) untuk cegah race condition
+  // Kalau print gagal, paper count dikembalikan di onError
+  savePaperCount(currentPaper - sheetsToPrint)
 
   // Langsung respon ke client — print jalan di background
   res.json({
@@ -405,6 +409,8 @@ app.post('/api/print', (req, res) => {
       : `Dokumen sedang dicetak (${sheetsToPrint} halaman).`,
     multiSession: hasMore,
     sessionId,
+    sesi1Pages: sheetsToPrint,
+    totalPages: totalSheets,
   })
 
   executePrint({
@@ -412,7 +418,7 @@ app.post('/api/print', (req, res) => {
     fromPage: 1,
     toPage: sheetsToPrint,
     onSuccess: (jobId) => {
-      const newPaper = savePaperCount(currentPaper - sheetsToPrint)
+      const newPaper = loadPaperCount()
       sendPaperAlert(newPaper)
       console.log(`[PRINT] ✅ Sesi 1 selesai (${sheetsToPrint} hal), jobId: ${jobId}`)
 
@@ -423,7 +429,6 @@ app.post('/api/print', (req, res) => {
           fromPage: sheetsToPrint + 1,
           toPage: totalSheets,
         })
-        // WA notif: ada sesi pending
         if (WA_NOTIFY_URL && WA_NOTIFY_PHONE) {
           fetch(WA_NOTIFY_URL, {
             method: 'POST',
@@ -437,6 +442,8 @@ app.post('/api/print', (req, res) => {
       }
     },
     onError: (err) => {
+      // Kembalikan paper count kalau print gagal
+      savePaperCount(currentPaper)
       console.error('[PRINT] Error:', err)
     },
   })
