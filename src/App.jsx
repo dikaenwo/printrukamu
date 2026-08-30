@@ -281,25 +281,26 @@ function App() {
       lastJobId = data.jobId || data.sessionId || 'unknown'
 
       if (data.multiSession && data.sessionId) {
-        const sesi1To = data.sesi1Pages || sheetsToPrint
-        const totalPgs = data.totalPages || totalSheets
+        const sesi1To = data.sesi1Pages
+        const totalPgs = data.totalPages
         sessions.push({ sesi: 1, pages: `1–${sesi1To}`, status: 'done', filename: fileMeta.name })
-        sessions.push({ sesi: 2, pages: `${sesi1To + 1}–${totalPgs}`, status: 'pending', sessionId: data.sessionId, filename: fileMeta.name })
-
-        // Poll status sesi 2
-        if (sessionPollRef.current) clearInterval(sessionPollRef.current)
-        sessionPollRef.current = setInterval(async () => {
-          try {
-            const sr = await fetch(`${API_BASE_URL}/api/session/${data.sessionId}`)
-            const sj = await sr.json()
-            if (sj.status === 'done') {
-              clearInterval(sessionPollRef.current)
-              setPrintSessions(prev => prev.map(s =>
-                s.sessionId === data.sessionId ? { ...s, status: 'done' } : s
-              ))
-            }
-          } catch {}
-        }, 10000)
+        if (sesi1To < totalPgs) {
+          sessions.push({ sesi: 2, pages: `${sesi1To + 1}–${totalPgs}`, status: 'pending', sessionId: data.sessionId, filename: fileMeta.name })
+          // Poll status sesi 2
+          if (sessionPollRef.current) clearInterval(sessionPollRef.current)
+          sessionPollRef.current = setInterval(async () => {
+            try {
+              const sr = await fetch(`${API_BASE_URL}/api/session/${data.sessionId}`)
+              const sj = await sr.json()
+              if (sj.status === 'done') {
+                clearInterval(sessionPollRef.current)
+                setPrintSessions(prev => prev.map(s =>
+                  s.sessionId === data.sessionId ? { ...s, status: 'done' } : s
+                ))
+              }
+            } catch {}
+          }, 10000)
+        }
       } else {
         sessions.push({ sesi: 1, pages: `1–${totalSheets}`, status: 'done', filename: fileMeta.name })
       }
