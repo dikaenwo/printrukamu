@@ -673,6 +673,7 @@ function App() {
                           <input
                             type="number" min={1} max={totalPages}
                             value={config.pageFrom}
+                            onWheel={e => e.target.blur()}
                             onChange={e => { const v = Math.min(parseInt(e.target.value) || 1, totalPages); updateConfig('pageFrom', v) }}
                             onBlur={() => updateConfig('pageFrom', Math.min(Math.max(1, config.pageFrom), config.pageTo))}
                             style={{ width: '100%', padding: '8px 10px', borderRadius: '8px', border: '1px solid var(--border)', background: 'var(--surface)', color: 'inherit', fontSize: '0.9rem' }}
@@ -684,6 +685,7 @@ function App() {
                           <input
                             type="number" min={config.pageFrom} max={totalPages}
                             value={config.pageTo}
+                            onWheel={e => e.target.blur()}
                             onChange={e => { const v = Math.min(parseInt(e.target.value) || 1, totalPages); updateConfig('pageTo', v) }}
                             onBlur={() => updateConfig('pageTo', Math.min(Math.max(config.pageFrom, config.pageTo), totalPages))}
                             style={{ width: '100%', padding: '8px 10px', borderRadius: '8px', border: '1px solid var(--border)', background: 'var(--surface)', color: 'inherit', fontSize: '0.9rem' }}
