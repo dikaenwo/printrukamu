@@ -34,7 +34,7 @@ const STEPS = [
 
 const PRICE = { bw: 300, color: 500 }
 
-const defaultConfig = { copies: 1, color: false, duplex: false, paperSize: 'A4' }
+const defaultConfig = { copies: 1, color: false, duplex: false, paperSize: 'A4', pageRangeEnabled: false, pageFrom: 1, pageTo: 1 }
 
 function formatCurrency(value) {
   return new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', maximumFractionDigits: 0 }).format(value)
@@ -184,6 +184,7 @@ function App() {
   const resetAll = () => {
     setStep(0); setFiles([]); setRawFiles([]); setPrintJobId(null); setCurrentOrderId(null); setPaperError(false)
     setConfig(defaultConfig); setIsAnalyzing(false); setIsProcessing(false); setError(null)
+    setPrintSessions([])
     if (fileInputRef.current) fileInputRef.current.value = ''
   }
 
@@ -192,9 +193,13 @@ function App() {
   // ─── Kalkulasi harga ────────────────────────────────────────────────────────
   const totalPages = files.reduce((s, f) => s + f.pages, 0)
   const totalSizeMB = files.reduce((s, f) => s + parseFloat(f.size), 0).toFixed(2)
-  const sheetCount = files.length ? Math.ceil(totalPages / (config.duplex ? 2 : 1)) * config.copies : 0
+  // Halaman efektif: kalau page range aktif, pakai range; kalau tidak, semua halaman
+  const effectivePages = config.pageRangeEnabled
+    ? Math.max(0, config.pageTo - config.pageFrom + 1)
+    : totalPages
+  const sheetCount = files.length ? Math.ceil(effectivePages / (config.duplex ? 2 : 1)) * config.copies : 0
   const pageRate = config.color ? PRICE.color : PRICE.bw
-  const printCost = files.length ? totalPages * config.copies * pageRate : 0
+  const printCost = files.length ? effectivePages * config.copies * pageRate : 0
   const totalPrice = files.length ? printCost : 0
   const currentStepTitle =
     step === 0 ? 'Upload Dokumen' : step === 1 ? 'Konfigurasi Cetak' : step === 2 ? 'Pembayaran' : 'Proses Print'
@@ -260,7 +265,11 @@ function App() {
       const rawFile = rawFiles[i]
       const fileMeta = files[i]
       const base64 = await encodeBase64(rawFile)
-      const totalSheets = Math.ceil(fileMeta.pages / (config.duplex ? 2 : 1)) * config.copies
+      // Kalau page range aktif, hitung berdasarkan range; kalau tidak, semua halaman
+      const printFrom = config.pageRangeEnabled ? config.pageFrom : 1
+      const printTo   = config.pageRangeEnabled ? config.pageTo   : fileMeta.pages
+      const selectedPages = printTo - printFrom + 1
+      const totalSheets = Math.ceil(selectedPages / (config.duplex ? 2 : 1)) * config.copies
 
       const response = await fetch(`${API_BASE_URL}/api/print`, {
         method: 'POST',
@@ -273,6 +282,8 @@ function App() {
           paperSize: config.paperSize,
           color: config.color,
           totalSheets,
+          printFrom,
+          printTo,
         }),
       })
       const data = await response.json()
@@ -638,6 +649,51 @@ function App() {
                         <span className="toggle-state">{config.duplex ? 'Aktif' : 'Nonaktif'}</span>
                       </button>
                     </div>
+                  </section>
+
+                  <section className="control-group">
+                    <div className="toggle-stack">
+                      <button type="button" className={`toggle-card ${config.pageRangeEnabled ? 'selected' : ''}`}
+                        onClick={() => {
+                          const next = !config.pageRangeEnabled
+                          updateConfig('pageRangeEnabled', next)
+                          if (next && totalPages > 0) {
+                            updateConfig('pageFrom', 1)
+                            updateConfig('pageTo', totalPages)
+                          }
+                        }}>
+                        <div><strong>Pilih halaman tertentu</strong><span>Cetak hanya halaman yang dipilih</span></div>
+                        <span className="toggle-state">{config.pageRangeEnabled ? 'Aktif' : 'Nonaktif'}</span>
+                      </button>
+                    </div>
+                    {config.pageRangeEnabled && (
+                      <div style={{ display: 'flex', gap: '12px', marginTop: '12px', alignItems: 'center' }}>
+                        <div style={{ flex: 1 }}>
+                          <label style={{ fontSize: '0.78rem', opacity: 0.7, display: 'block', marginBottom: '4px' }}>Dari halaman</label>
+                          <input
+                            type="number" min={1} max={totalPages}
+                            value={config.pageFrom}
+                            onChange={e => updateConfig('pageFrom', Math.min(Math.max(1, parseInt(e.target.value) || 1), config.pageTo))}
+                            style={{ width: '100%', padding: '8px 10px', borderRadius: '8px', border: '1px solid var(--border)', background: 'var(--surface)', color: 'inherit', fontSize: '0.9rem' }}
+                          />
+                        </div>
+                        <span style={{ marginTop: '18px', opacity: 0.5 }}>—</span>
+                        <div style={{ flex: 1 }}>
+                          <label style={{ fontSize: '0.78rem', opacity: 0.7, display: 'block', marginBottom: '4px' }}>Sampai halaman</label>
+                          <input
+                            type="number" min={config.pageFrom} max={totalPages}
+                            value={config.pageTo}
+                            onChange={e => updateConfig('pageTo', Math.min(Math.max(config.pageFrom, parseInt(e.target.value) || 1), totalPages))}
+                            style={{ width: '100%', padding: '8px 10px', borderRadius: '8px', border: '1px solid var(--border)', background: 'var(--surface)', color: 'inherit', fontSize: '0.9rem' }}
+                          />
+                        </div>
+                      </div>
+                    )}
+                    {config.pageRangeEnabled && (
+                      <p style={{ fontSize: '0.78rem', opacity: 0.65, marginTop: '8px' }}>
+                        📄 Mencetak {config.pageTo - config.pageFrom + 1} halaman dari total {totalPages} halaman dokumen
+                      </p>
+                    )}
                   </section>
                 </div>
 

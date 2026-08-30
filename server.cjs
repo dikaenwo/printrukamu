@@ -382,7 +382,7 @@ async function processPendingSessions() {
 
 // Print endpoint — menerima file sebagai base64 JSON (lebih reliable dari multipart)
 app.post('/api/print', (req, res) => {
-  const { filename, data, copies = 1, duplex = false, paperSize = 'A4', color = false, totalSheets = 1 } = req.body || {}
+  const { filename, data, copies = 1, duplex = false, paperSize = 'A4', color = false, totalSheets = 1, printFrom = null, printTo = null } = req.body || {}
 
   if (!data) return res.status(400).json({ error: 'Tidak ada data file yang dikirim.' })
 
@@ -415,8 +415,8 @@ app.post('/api/print', (req, res) => {
 
   executePrint({
     filename, data, copies, duplex, paperSize, color,
-    fromPage: 1,
-    toPage: sheetsToPrint,
+    fromPage: printFrom || 1,
+    toPage: printFrom ? (printFrom + sheetsToPrint - 1) : sheetsToPrint,
     onSuccess: (jobId) => {
       const newPaper = loadPaperCount()
       sendPaperAlert(newPaper)
