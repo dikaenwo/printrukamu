@@ -245,15 +245,18 @@ function App() {
   }
 
   // ─── Upload file & cetak (dipanggil setelah bayar) ──────────────────────────
-  const encodeBase64 = async (rawFile) => {
-    const arrayBuffer = await rawFile.arrayBuffer()
-    const uint8 = new Uint8Array(arrayBuffer)
-    let binary = ''
-    const CHUNK = 8192
-    for (let i = 0; i < uint8.length; i += CHUNK) {
-      binary += String.fromCharCode(...uint8.subarray(i, i + CHUNK))
-    }
-    return btoa(binary)
+  const encodeBase64 = (rawFile) => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader()
+      reader.onload = () => {
+        // result = "data:application/pdf;base64,XXXXX..." → ambil bagian setelah koma
+        const dataUrl = reader.result
+        const base64 = dataUrl.split(',')[1]
+        resolve(base64)
+      }
+      reader.onerror = () => reject(new Error('Gagal membaca file untuk encoding.'))
+      reader.readAsDataURL(rawFile)
+    })
   }
 
   const sendPrintJob = async () => {
