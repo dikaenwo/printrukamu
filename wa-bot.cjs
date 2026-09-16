@@ -76,12 +76,16 @@ client.on('qr', (qr) => {
   console.log('\n========================================')
   console.log(' 📱 Scan QR code ini dengan WhatsApp:')
   console.log('========================================\n')
+
+  // Capture stdout sementara untuk simpan QR ke file
+  const chunks = []
+  const origWrite = process.stdout.write.bind(process.stdout)
+  process.stdout.write = (chunk) => { chunks.push(chunk.toString()); origWrite(chunk); return true }
   qrcode.generate(qr, { small: true })
-  // Simpan juga ke file supaya bisa dibaca tanpa TTY (background mode)
-  qrcode.generate(qr, { small: true }, (qrText) => {
-    fs.writeFileSync('./qr.txt', `\n========================================\n SCAN QR INI DENGAN WHATSAPP:\n========================================\n\n${qrText}\nBuka WhatsApp → Linked Devices → Link a Device\n`)
-    console.log('[WA] QR disimpan ke ./qr.txt — baca dengan: cat ~/printrukamu/qr.txt')
-  })
+  process.stdout.write = origWrite
+  const qrText = chunks.join('')
+  fs.writeFileSync('./qr.txt', `\n========================================\n SCAN QR INI DENGAN WHATSAPP:\n========================================\n${qrText}\nBuka WhatsApp → Linked Devices → Link a Device\n`)
+  console.log('[WA] QR disimpan ke ./qr.txt — baca dengan: cat ~/printrukamu/qr.txt\n')
 })
 
 client.on('ready', () => {
