@@ -222,6 +222,25 @@ app.get('/api/config', (_req, res) => {
   res.json({ clientKey, isProduction, printer: PRINTER_NAME })
 })
 
+// ─── Cek status printer sebelum bayar ────────────────────────────────────────
+app.get('/api/printer-status', (_req, res) => {
+  exec(`lpstat -p "${PRINTER_NAME}" 2>&1`, (err, stdout, stderr) => {
+    const output = (stdout || stderr || '').toLowerCase()
+    // Printer ONLINE kalau: idle, processing, printing
+    // Printer OFFLINE kalau: stopped, disabled, offline, not-connected, error
+    const isOnline = (
+      !err &&
+      (output.includes('idle') || output.includes('processing') || output.includes('printing')) &&
+      !output.includes('stopped') &&
+      !output.includes('disabled') &&
+      !output.includes('offline')
+    )
+    const rawStatus = stdout?.trim() || stderr?.trim() || 'unknown'
+    console.log(`[PRINTER-STATUS] ${isOnline ? '✅ Online' : '❌ Offline'} — ${rawStatus}`)
+    res.json({ online: isOnline, status: rawStatus, printer: PRINTER_NAME })
+  })
+})
+
 app.post('/api/create-checkout-transaction', async (req, res) => {
   const { amount, order_id, items, customer_details, totalSheets } = req.body || {}
   const grossAmount = Number(amount) || 0

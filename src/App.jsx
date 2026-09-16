@@ -213,6 +213,23 @@ function App() {
   const proceedToPayment = async () => {
     if (!files.length) return
     setIsProcessing(true)
+    setError(null)
+
+    // ── Cek printer online sebelum bayar ──
+    try {
+      const printerRes = await fetch(`${API_BASE_URL}/api/printer-status`)
+      if (printerRes.ok) {
+        const printerData = await printerRes.json()
+        if (!printerData.online) {
+          setError('❌ Printer sedang offline atau tidak terdeteksi. Pastikan printer sudah menyala dan coba lagi.')
+          setIsProcessing(false)
+          return
+        }
+      }
+    } catch {
+      // Kalau tidak bisa cek, lanjutkan saja (jangan block user)
+    }
+
     // Cek stok kertas — hanya block kalau kertas = 0 (multi-sesi handled di server)
     try {
       const res = await fetch(`${API_BASE_URL}/api/admin/paper`)
