@@ -89,11 +89,15 @@ function App() {
   const analyzeFile = async (fileObject) => {
     const ext = fileObject.name.toLowerCase().split('.').pop()
     const arrayBuffer = await fileObject.arrayBuffer()
-    try {
-      if (ext === 'pdf') {
-        const pdfDoc = await PDFDocument.load(arrayBuffer, { ignoreEncryption: true })
+    if (ext === 'pdf') {
+      try {
+        const pdfDoc = await PDFDocument.load(arrayBuffer)  // tanpa ignoreEncryption — PDF encrypt akan langsung error
         return pdfDoc.getPageCount()
+      } catch (e) {
+        throw new Error(`PDF tidak dapat dibaca: ${e.message?.includes('encrypt') ? 'PDF terpassword/dienkripsi.' : 'Format PDF tidak valid atau rusak.'}`)
       }
+    }
+    try {
       if (ext === 'docx' || ext === 'doc') {
         const zip = await JSZip.loadAsync(arrayBuffer)
         const appXml = await zip.file('docProps/app.xml')?.async('text')
@@ -152,8 +156,8 @@ function App() {
       setRawFiles((prev) => [...prev, ...analyzed.map((a) => a.raw)])
       setFiles((prev) => [...prev, ...analyzed.map((a) => a.meta)])
       if (step === 0) setStep(1)
-    } catch {
-      setError('Gagal membaca satu atau lebih dokumen. Coba file lain atau unggah ulang.')
+    } catch (e) {
+      setError(e.message || 'Gagal membaca satu atau lebih dokumen. Coba file lain atau unggah ulang.')
     } finally {
       setIsAnalyzing(false)
       if (fileInputRef.current) fileInputRef.current.value = ''
