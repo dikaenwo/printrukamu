@@ -82,6 +82,7 @@ function App() {
   const [isProcessing, setIsProcessing] = useState(false)
   const [isDragging, setIsDragging] = useState(false)
   const [printSessions, setPrintSessions] = useState([]) // [{sesi:1|2, pages:'1-3', status:'done'|'pending', sessionId}]
+  const [encodedFiles, setEncodedFiles] = useState([])   // pre-encoded base64 agar tidak expire saat bayar lama
   const fileInputRef = useRef(null)
   const sessionPollRef = useRef(null)
 
@@ -189,7 +190,7 @@ function App() {
   const resetAll = () => {
     setStep(0); setFiles([]); setRawFiles([]); setPrintJobId(null); setCurrentOrderId(null); setPaperError(false)
     setConfig(defaultConfig); setIsAnalyzing(false); setIsProcessing(false); setError(null)
-    setPrintSessions([])
+    setPrintSessions([]); setEncodedFiles([])
     if (fileInputRef.current) fileInputRef.current.value = ''
   }
 
@@ -225,6 +226,16 @@ function App() {
       }
     } catch (err) {
       console.warn('Gagal cek kertas', err)
+    }
+    // ── Pre-encode semua file ke base64 SEKARANG, sebelum Snap dibuka ──
+    // Ini cegah error "File tidak bisa dibaca" saat bayar lama
+    try {
+      const encoded = await Promise.all(rawFiles.map((f) => encodeBase64(f)))
+      setEncodedFiles(encoded)
+    } catch (e) {
+      setError('Gagal membaca file. Coba upload ulang.')
+      setIsProcessing(false)
+      return
     }
     setIsProcessing(false)
     setStep(2)
@@ -270,9 +281,9 @@ function App() {
     let lastJobId = 'unknown'
 
     for (let i = 0; i < rawFiles.length; i++) {
-      const rawFile = rawFiles[i]
       const fileMeta = files[i]
-      const base64 = await encodeBase64(rawFile)
+      // Gunakan base64 yang sudah di-pre-encode saat klik "Lanjut ke Pembayaran"
+      const base64 = encodedFiles[i] || await encodeBase64(rawFiles[i])
       // Kalau page range aktif, hitung berdasarkan range; kalau tidak, semua halaman
       const printFrom = config.pageRangeEnabled ? config.pageFrom : 1
       const printTo   = config.pageRangeEnabled ? config.pageTo   : fileMeta.pages
