@@ -71,21 +71,12 @@ const client = new Client({
 })
 
 let isReady = false
+let latestQr = null  // Simpan QR terbaru untuk endpoint /qr
 
 client.on('qr', (qr) => {
-  console.log('\n========================================')
-  console.log(' 📱 Scan QR code ini dengan WhatsApp:')
-  console.log('========================================\n')
-
-  // Capture stdout sementara untuk simpan QR ke file
-  const chunks = []
-  const origWrite = process.stdout.write.bind(process.stdout)
-  process.stdout.write = (chunk) => { chunks.push(chunk.toString()); origWrite(chunk); return true }
-  qrcode.generate(qr, { small: true })
-  process.stdout.write = origWrite
-  const qrText = chunks.join('')
-  fs.writeFileSync('./qr.txt', `\n========================================\n SCAN QR INI DENGAN WHATSAPP:\n========================================\n${qrText}\nBuka WhatsApp → Linked Devices → Link a Device\n`)
-  console.log('[WA] QR disimpan ke ./qr.txt — baca dengan: cat ~/printrukamu/qr.txt\n')
+  latestQr = qr
+  console.log('[WA] QR baru diterima — buka browser: http://<IP-RASPI>:3001/qr')
+  console.log('[WA] Atau jalankan: curl http://localhost:3001/qr > qr.html && open qr.html')
 })
 
 client.on('ready', () => {
@@ -115,8 +106,28 @@ client.on('disconnected', (reason) => {
 
 // ─── REST API ─────────────────────────────────────────────────────────────────
 
+// ─── QR Code Viewer (buka di browser saat pertama kali) ──────────────────────
+app.get('/qr', (_req, res) => {
+  if (isReady) return res.send('<h2 style="font-family:sans-serif;color:green">✅ WhatsApp sudah terkoneksi!</h2>')
+  if (!latestQr) return res.send('<h2 style="font-family:sans-serif">⏳ QR belum siap, tunggu ~15 detik lalu refresh...</h2><script>setTimeout(()=>location.reload(),5000)</script>')
+  const encoded = encodeURIComponent(latestQr)
+  res.send(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Scan WA QR</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<style>body{display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh;margin:0;font-family:sans-serif;background:#f5f5f5}
+h1{color:#25D366}p{color:#555}img{border:8px solid white;border-radius:12px;box-shadow:0 4px 20px rgba(0,0,0,.15)}</style>
+<meta http-equiv="refresh" content="30"></head>
+<body><h1>📱 Scan QR WhatsApp</h1>
+<img src="https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=${encoded}" width="300" height="300" />
+<p>Buka WhatsApp → <strong>Linked Devices</strong> → <strong>Link a Device</strong></p>
+<p style="opacity:.5;font-size:.8rem">Halaman auto-refresh setiap 30 detik</p></body></html>`)
+})
+
 // Health check
 app.get('/health', (_req, res) => {
+  res.json({ ok: true, service: 'rukkamu-wa-bot', whatsapp: isReady ? 'connected' : 'disconnected' })
+})
+
+app.get('/health_check', (_req, res) => {
   res.json({
     ok: true,
     service: 'rukkamu-wa-bot',
