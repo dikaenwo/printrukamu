@@ -77,7 +77,11 @@ client.on('qr', (qr) => {
   console.log(' 📱 Scan QR code ini dengan WhatsApp:')
   console.log('========================================\n')
   qrcode.generate(qr, { small: true })
-  console.log('\nBuka WhatsApp → Linked Devices → Link a Device → Scan QR di atas\n')
+  // Simpan juga ke file supaya bisa dibaca tanpa TTY (background mode)
+  qrcode.generate(qr, { small: true }, (qrText) => {
+    fs.writeFileSync('./qr.txt', `\n========================================\n SCAN QR INI DENGAN WHATSAPP:\n========================================\n\n${qrText}\nBuka WhatsApp → Linked Devices → Link a Device\n`)
+    console.log('[WA] QR disimpan ke ./qr.txt — baca dengan: cat ~/printrukamu/qr.txt')
+  })
 })
 
 client.on('ready', () => {
